@@ -43,10 +43,7 @@ def validate_expression(expression: str, fields: Iterable[str], operators: Itera
     except (SyntaxError, ValueError) as exc:
         return False, f"Invalid expression syntax: {getattr(exc, 'msg', str(exc))}"
 
-    allowed_names = field_set | operator_set | _ALLOWED_CONSTANT_NAMES
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id not in allowed_names:
-            return False, "Unsupported identifier: " + node.id
         if isinstance(node, ast.Call) and not isinstance(node.func, ast.Name):
             return False, "Only registered function calls are allowed"
         if isinstance(node, _FORBIDDEN_NODES):
@@ -60,6 +57,11 @@ def validate_expression(expression: str, fields: Iterable[str], operators: Itera
     unknown_calls = called - operator_set
     if unknown_calls:
         return False, "Unsupported operator(s): " + ", ".join(sorted(unknown_calls))
+
+    allowed_names = field_set | operator_set | _ALLOWED_CONSTANT_NAMES
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id not in allowed_names:
+            return False, "Unsupported identifier: " + node.id
 
     used_names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     unknown_fields = used_names - operator_set - field_set - _ALLOWED_CONSTANT_NAMES
