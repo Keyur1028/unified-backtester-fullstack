@@ -118,5 +118,24 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(response.get_json()["error"]["type"], "ConfigurationError")
 
 
+    def test_generate_alpha_cache_hit_does_not_require_gemini_key(self):
+        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
+        idea = "Capture persistent momentum with a volatility penalty."
+        model = "test-model"
+        response_body = {"ideas": [{"expression": "rank(close)", "id": "idea-1"}], "rejected": [], "model": model}
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(api_app, "STORE", Path(directory)):
+                with patch.object(api_app.engine, "describe_interface", return_value=interface):
+                    with patch.object(api_app.engine, "OPERATORS", {"rank": object()}):
+                        with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
+                            key = make_cache_key(idea, ["close"], ["rank"], model)
+                            write_cached_response(Path(directory) / "idea_generation_cache.json", key, response_body)
+                            with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": model}):
+                                response = self.client.post("/api/generate-alpha", json={"idea": idea})
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["ideas"][0]["expression"], "rank(close)")
+        self.assertEqual(payload["cache"], {"hit": True, "strategy": "exact-match"})
+
 if __name__ == "__main__":
     unittest.main()
