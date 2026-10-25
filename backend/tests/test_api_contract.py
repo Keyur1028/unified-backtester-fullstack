@@ -7,6 +7,8 @@ Run from the repository root with:
 import os
 import sys
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -14,6 +16,7 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 import app as api_app  # noqa: E402
+from idea_cache import make_cache_key, write_cached_response  # noqa: E402
 
 
 class ApiContractTests(unittest.TestCase):

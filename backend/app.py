@@ -12,6 +12,7 @@ try:
 except ImportError:
     pass
 import alpha_engine as engine
+from idea_cache import make_cache_key, read_cached_response, write_cached_response
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
@@ -143,15 +144,23 @@ def generate_alpha_ideas():
         return jsonify({"error": {"type": "ValidationError", "message": "Describe the strategy in at least 20 characters, including the behavior you want to capture."}}), 400
     if len(idea) > 5000:
         return jsonify({"error": {"type": "ValidationError", "message": "Strategy prompt must be 5,000 characters or fewer."}}), 400
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        return jsonify({"error": {"type": "ConfigurationError", "message": "Gemini is not configured. Add GEMINI_API_KEY to backend/.env and restart the backend."}}), 503
     fields_info = engine.describe_interface().get("fields", {})
     fields = set()
     for value in fields_info.values():
         if isinstance(value, list): fields.update(str(x) for x in value)
         elif isinstance(value, dict): fields.update(str(x) for x in value.keys())
     operators = set(engine.OPERATORS) | set(engine.GROUP_OPERATORS)
+    model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+    cache_key = make_cache_key(idea, sorted(fields), sorted(operators), model)
+    cache_path = STORE / "idea_generation_cache.json"
+    cached = read_cached_response(cache_path, cache_key)
+    if cached is not None:
+        cached["cache"] = {"hit": True, "strategy": "exact-match"}
+        return jsonify(cached)
+
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return jsonify({"error": {"type": "ConfigurationError", "message": "Gemini is not configured. Add GEMINI_API_KEY to backend/.env and restart the backend."}}), 503
     schema = {"ideas": [{"name": "short readable name", "hypothesis": "testable market hypothesis", "expression": "engine expression", "rationale": "why the signal could work", "expected_behavior": "what a high/low score means", "risks": ["research caveat"]}]}
     prompt = (
         "You are a quantitative research assistant for a daily-bar alpha backtester. "
@@ -169,7 +178,7 @@ def generate_alpha_ideas():
         from google import genai
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"), contents=prompt,
+            model=model, contents=prompt,
             config={"response_mime_type": "application/json", "temperature": 0.35})
         raw = json.loads(response.text or "{}")
         ideas = raw.get("ideas", []) if isinstance(raw, dict) else []
@@ -199,7 +208,13 @@ def generate_alpha_ideas():
                 rejected.append({"expression": expr, "reason": str(exc)})
         if not accepted:
             return jsonify({"error": {"type": "GenerationValidationError", "message": "Gemini returned no candidates that passed engine field/operator checks. Try a more specific OHLCV-based prompt.", "rejected": rejected}}), 422
-        return jsonify({"ideas": accepted, "rejected": rejected, "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"), "note": "Candidates passed syntax and registry checks only. Run each candidate to verify runtime compatibility and evaluate out-of-sample robustness."})
+        result = {"ideas": accepted, "rejected": rejected, "model": model, "note": "Candidates passed syntax and registry checks only. Run each candidate to verify runtime compatibility and evaluate out-of-sample robustness."}
+        try:
+            write_cached_response(cache_path, cache_key, result)
+        except OSError:
+            app.logger.warning("Could not persist idea-generation cache", exc_info=True)
+        result["cache"] = {"hit": False, "strategy": "exact-match"}
+        return jsonify(result)
     except ImportError:
         return jsonify({"error": {"type": "DependencyError", "message": "Install backend dependencies with: pip install -r requirements.txt (includes google-genai)."}}), 503
     except Exception:
