@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Compile backend modules
-        run: python -m py_compile backend/app.py backend/alpha_engine.py backend/idea_cache.py backend/candidate_validation.py backend/tests/test_api_contract.py backend/tests/test_idea_cache.py backend/tests/test_candidate_validation.py
+        run: python -m py_compile backend/app.py backend/alpha_engine.py backend/idea_cache.py backend/candidate_validation.py backend/similarity_retrieval.py backend/tests/test_api_contract.py backend/tests/test_idea_cache.py backend/tests/test_candidate_validation.py backend/tests/test_similarity_retrieval.py
 
   backend-contract-tests:
     name: Backend API contract tests
