@@ -7,6 +7,7 @@ are scoped to the active model and engine catalog fingerprint.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -116,7 +117,7 @@ def store_idea_response(
         pass
 
     # Replace duplicate token signatures within the same catalog/model scope.
-    signature = " ".join(tokens)
+    signature = hashlib.sha256(" ".join(tokens).encode("utf-8")).hexdigest()
     entries = [
         row for row in entries
         if not (row.get("token_signature") == signature
