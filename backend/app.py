@@ -14,7 +14,7 @@ except ImportError:
 import alpha_engine as engine
 from idea_cache import make_cache_key, read_cached_response, write_cached_response
 from candidate_validation import VALIDATOR_VERSION, catalog_fingerprint, validate_expression
-from similarity_retrieval import retrieve_similar, store_idea_response
+from similarity_retrieval import idea_tokens, retrieve_similar, store_idea_response
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
@@ -165,6 +165,46 @@ def generate_alpha_ideas():
     similar_ideas = retrieve_similar(
         retrieval_path, idea, model, catalog_id, limit=3, min_similarity=0.25
     )
+
+    # Reuse a prior validated candidate set only for a very close lexical match.
+    # Require enough query terms to reduce false positives from short generic ideas.
+    query_tokens = idea_tokens(idea)
+    near_duplicate = next(
+        (
+            row for row in similar_ideas
+            if len(query_tokens) >= 5 and row.get("similarity", 0) >= 0.92
+            and isinstance(row.get("ideas"), list) and row["ideas"]
+        ),
+        None,
+    )
+    if near_duplicate is not None:
+        result = {
+            "ideas": near_duplicate["ideas"],
+            "rejected": [],
+            "model": model,
+            "provenance": {
+                "validator": VALIDATOR_VERSION,
+                "catalog_fingerprint": catalog_id,
+                "scope": "static-syntax-and-registry-only",
+            },
+            "note": (
+                "Reused candidates from a highly similar prior prompt to avoid a model call. "
+                "Similarity is lexical, not semantic; verify the expressions and run backtests "
+                "before interpreting their research value."
+            ),
+            "retrieval": {
+                "strategy": "local-lexical-cosine",
+                "matches_used": 1,
+                "similarity": near_duplicate["similarity"],
+                "raw_prompt_persisted": False,
+            },
+            "cache": {"hit": True, "strategy": "similarity"},
+        }
+        try:
+            write_cached_response(cache_path, cache_key, result)
+        except OSError:
+            app.logger.warning("Could not persist similarity cache hit", exc_info=True)
+        return jsonify(result)
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
