@@ -14,6 +14,7 @@ except ImportError:
 import alpha_engine as engine
 from idea_cache import make_cache_key, read_cached_response, write_cached_response
 from candidate_validation import VALIDATOR_VERSION, catalog_fingerprint, validate_expression
+from similarity_retrieval import retrieve_similar, store_idea_response
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
@@ -159,6 +160,12 @@ def generate_alpha_ideas():
         cached["cache"] = {"hit": True, "strategy": "exact-match"}
         return jsonify(cached)
 
+    catalog_id = catalog_fingerprint(fields, operators)
+    retrieval_path = STORE / "idea_retrieval_index.json"
+    similar_ideas = retrieve_similar(
+        retrieval_path, idea, model, catalog_id, limit=3, min_similarity=0.25
+    )
+
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return jsonify({"error": {"type": "ConfigurationError", "message": "Gemini is not configured. Add GEMINI_API_KEY to backend/.env and restart the backend."}}), 503
@@ -175,6 +182,17 @@ def generate_alpha_ideas():
         "Use positive integer lookback windows. Do not promise profitability. If the idea needs unavailable data or intraday timing, "
         "state that limitation in risks and propose the closest honest daily OHLCV-only proxy. Generate distinct hypotheses, not merely different window lengths."
     )
+    if similar_ideas:
+        examples = [
+            {"similarity": row["similarity"], "ideas": row["ideas"]}
+            for row in similar_ideas
+        ]
+        prompt += (
+            "\\nRetrieved prior candidates (lexical similarity; examples only, not proof of validity): "
+            + json.dumps(examples)
+            + "\\nUse these only as research context. Do not copy an expression unless it fits the current idea; "
+              "produce distinct candidates and still obey the active field/operator registry."
+        )
     try:
         from google import genai
         client = genai.Client(api_key=api_key)
@@ -209,10 +227,19 @@ def generate_alpha_ideas():
                                  "catalog_fingerprint": catalog_fingerprint(fields, operators),
                                  "scope": "static-syntax-and-registry-only"},
                   "note": "Candidates passed syntax and registry checks only. Run each candidate to verify runtime compatibility and evaluate out-of-sample robustness."}
+        result["retrieval"] = {
+            "strategy": "local-lexical-cosine",
+            "matches_used": len(similar_ideas),
+            "raw_prompt_persisted": False,
+        }
         try:
             write_cached_response(cache_path, cache_key, result)
         except OSError:
             app.logger.warning("Could not persist idea-generation cache", exc_info=True)
+        try:
+            store_idea_response(retrieval_path, idea, model, catalog_id, result)
+        except OSError:
+            app.logger.warning("Could not persist idea retrieval index", exc_info=True)
         result["cache"] = {"hit": False, "strategy": "exact-match"}
         return jsonify(result)
     except ImportError:
