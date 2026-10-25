@@ -118,6 +118,32 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(response.get_json()["error"]["type"], "ConfigurationError")
 
 
+    def test_generate_alpha_high_similarity_hit_skips_gemini_key(self):
+        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
+        idea = "Find persistent momentum using price trend and recent trading volume"
+        prior_ideas = [{
+            "id": "idea-1",
+            "expression": "rank(ts_mean(close, 20))",
+            "validation": "syntax-and-registry-pass",
+            "provenance": {"scope": "static-syntax-and-registry-only"},
+        }]
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(api_app, "STORE", Path(directory)):
+                with patch.object(api_app.engine, "describe_interface", return_value=interface):
+                    with patch.object(api_app.engine, "OPERATORS", {"rank": object()}):
+                        with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
+                            with patch.object(api_app, "retrieve_similar", return_value=[
+                                {"similarity": 0.96, "ideas": prior_ideas}
+                            ]):
+                                with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": "test-model"}):
+                                    response = self.client.post("/api/generate-alpha", json={"idea": idea})
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["ideas"][0]["expression"], "rank(ts_mean(close, 20))")
+        self.assertEqual(payload["cache"], {"hit": True, "strategy": "similarity"})
+        self.assertEqual(payload["retrieval"]["similarity"], 0.96)
+        self.assertIn("lexical", payload["note"])
+
     def test_generate_alpha_cache_hit_does_not_require_gemini_key(self):
         interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
         idea = "Capture persistent momentum with a volatility penalty."
