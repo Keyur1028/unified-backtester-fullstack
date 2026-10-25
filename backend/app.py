@@ -13,6 +13,7 @@ except ImportError:
     pass
 import alpha_engine as engine
 from idea_cache import make_cache_key, read_cached_response, write_cached_response
+from candidate_validation import VALIDATOR_VERSION, catalog_fingerprint, validate_expression
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
@@ -187,28 +188,27 @@ def generate_alpha_ideas():
             if not isinstance(item, dict): continue
             expr = str(item.get("expression", "")).strip()
             try:
-                tree = ast.parse(expr, mode="eval")
-                allowed_names = fields | operators | {"True", "False", "None"}
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.Name) and node.id not in allowed_names:
-                        raise ValueError("Unsupported identifier: " + node.id)
-                    if isinstance(node, ast.Call) and not isinstance(node.func, ast.Name):
-                        raise ValueError("Only registered function calls are allowed")
-                    if isinstance(node, (ast.Attribute, ast.Subscript, ast.Lambda, ast.DictComp, ast.ListComp, ast.GeneratorExp, ast.NamedExpr)):
-                        raise ValueError("Unsupported expression syntax")
-                unknown_calls = {n.func.id for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)} - operators
-                if unknown_calls: raise ValueError("Unsupported operator(s): " + ", ".join(sorted(unknown_calls)))
-                unknown_fields = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} - operators - fields - {"True", "False", "None"}
-                if unknown_fields: raise ValueError("Unsupported field(s): " + ", ".join(sorted(unknown_fields)))
+                valid, reason = validate_expression(expr, fields, operators)
+                if not valid:
+                    raise ValueError(reason or "Expression validation failed")
                 item["expression"] = expr
                 item["id"] = "idea-" + str(len(accepted) + 1)
                 item["validation"] = "syntax-and-registry-pass"
+                item["provenance"] = {
+                    "validator": VALIDATOR_VERSION,
+                    "catalog_fingerprint": catalog_fingerprint(fields, operators),
+                    "scope": "static-syntax-and-registry-only",
+                }
                 accepted.append(item)
             except Exception as exc:
                 rejected.append({"expression": expr, "reason": str(exc)})
         if not accepted:
             return jsonify({"error": {"type": "GenerationValidationError", "message": "Gemini returned no candidates that passed engine field/operator checks. Try a more specific OHLCV-based prompt.", "rejected": rejected}}), 422
-        result = {"ideas": accepted, "rejected": rejected, "model": model, "note": "Candidates passed syntax and registry checks only. Run each candidate to verify runtime compatibility and evaluate out-of-sample robustness."}
+        result = {"ideas": accepted, "rejected": rejected, "model": model,
+                  "provenance": {"validator": VALIDATOR_VERSION,
+                                 "catalog_fingerprint": catalog_fingerprint(fields, operators),
+                                 "scope": "static-syntax-and-registry-only"},
+                  "note": "Candidates passed syntax and registry checks only. Run each candidate to verify runtime compatibility and evaluate out-of-sample robustness."}
         try:
             write_cached_response(cache_path, cache_key, result)
         except OSError:
