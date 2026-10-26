@@ -163,5 +163,45 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(payload["ideas"][0]["expression"], "rank(close)")
         self.assertEqual(payload["cache"], {"hit": True, "strategy": "exact-match"})
 
+    def _generate_with_similarity(self, idea, similarity):
+        """Run the endpoint with one retrieval match at the given similarity.
+
+        With no Gemini key configured, a 503 ConfigurationError proves the request
+        fell through to the model path, and a 200 proves it was reused.
+        """
+        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
+        prior_ideas = [{"id": "idea-1", "expression": "rank(close)", "validation": "syntax-and-registry-pass"}]
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(api_app, "STORE", Path(directory)):
+                with patch.object(api_app.engine, "describe_interface", return_value=interface):
+                    with patch.object(api_app.engine, "OPERATORS", {"rank": object()}):
+                        with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
+                            with patch.object(api_app, "retrieve_similar", return_value=[
+                                {"similarity": similarity, "ideas": prior_ideas}
+                            ]):
+                                with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": "test-model"}):
+                                    return self.client.post("/api/generate-alpha", json={"idea": idea})
+
+    def test_similarity_exactly_at_threshold_is_reused(self):
+        response = self._generate_with_similarity(
+            "Find persistent momentum using price trend and recent trading volume", 0.92
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["cache"], {"hit": True, "strategy": "similarity"})
+
+    def test_similarity_just_below_threshold_falls_through_to_model(self):
+        response = self._generate_with_similarity(
+            "Find persistent momentum using price trend and recent trading volume", 0.9199
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json()["error"]["type"], "ConfigurationError")
+
+    def test_short_prompt_with_four_tokens_is_never_reused(self):
+        # Four meaningful tokens (momentum, volume, trend, signal) is below the
+        # five-token minimum, so even a perfect match must not skip the model.
+        response = self._generate_with_similarity("momentum volume trend signal", 1.0)
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json()["error"]["type"], "ConfigurationError")
+
 if __name__ == "__main__":
     unittest.main()

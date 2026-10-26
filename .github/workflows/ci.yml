@@ -9,10 +9,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend-syntax:
     name: Backend Python syntax
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -20,27 +25,62 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Compile backend modules
-        run: python -m py_compile backend/app.py backend/alpha_engine.py backend/idea_cache.py backend/candidate_validation.py backend/similarity_retrieval.py backend/tests/test_api_contract.py backend/tests/test_idea_cache.py backend/tests/test_candidate_validation.py backend/tests/test_similarity_retrieval.py
+      # Compile every Python file under backend/ so new modules are covered
+      # automatically instead of relying on a hand-maintained list.
+      - name: Compile all backend modules
+        run: python -m compileall -q -f backend
+
+  backend-lint:
+    name: Backend static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: python -m pip install "ruff==0.8.4"
+      # High-signal rules only: syntax errors, undefined names, and invalid
+      # comparisons/assert/format usage. Style rules are intentionally excluded.
+      - name: Run ruff on backend
+        run: ruff check --no-cache --select E9,F63,F7,F82 backend
 
   backend-contract-tests:
-    name: Backend API contract tests
+    name: Backend tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    env:
+      # The suite must be fully offline. Blank the Gemini key so any test
+      # that accidentally reaches the live model fails loudly instead of
+      # depending on a developer's local environment.
+      GEMINI_API_KEY: ""
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Install minimal test dependencies
-        run: python -m pip install flask flask-cors numpy pandas scipy
-      - name: Run offline API tests
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      # Install the real dependency set so import-time breakage from
+      # yfinance, pyarrow, google-genai, etc. is caught in CI.
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Run offline backend tests
         run: python -m unittest discover -s backend/tests -v
 
   frontend-build:
     name: Frontend production build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
