@@ -154,7 +154,7 @@ class ApiContractTests(unittest.TestCase):
                 with patch.object(api_app.engine, "describe_interface", return_value=interface):
                     with patch.object(api_app.engine, "OPERATORS", {"rank": object(), "ts_mean": object()}):
                         with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
-                            key = make_cache_key(idea, ["close"], ["rank"], model)
+                            key = make_cache_key(idea, ["close"], ["rank", "ts_mean"], model)
                             write_cached_response(Path(directory) / "idea_generation_cache.json", key, response_body)
                             with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": model}):
                                 response = self.client.post("/api/generate-alpha", json={"idea": idea})
