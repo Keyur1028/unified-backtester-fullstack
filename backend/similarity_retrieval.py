@@ -85,6 +85,7 @@ def retrieve_similar(
         if score >= min_similarity:
             results.append({
                 "similarity": round(score, 4),
+                "matched_tokens": [str(token).casefold() for token in stored_tokens],
                 "ideas": response.get("ideas", [])[:3] if isinstance(response.get("ideas"), list) else [],
             })
     results.sort(key=lambda row: row["similarity"], reverse=True)
