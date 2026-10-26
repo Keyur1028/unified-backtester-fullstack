@@ -48,7 +48,7 @@ class SimilaritySafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(api_app, "STORE", Path(directory)):
                 with patch.object(api_app.engine, "describe_interface", return_value=interface):
-                    with patch.object(api_app.engine, "OPERATORS", {"rank": object()}):
+                    with patch.object(api_app.engine, "OPERATORS", {"rank": object(), "ts_mean": object()}):
                         with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
                             with patch.object(api_app, "retrieve_similar", return_value=[{
                                 "similarity": 0.97,
@@ -80,7 +80,7 @@ class SimilaritySafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(api_app, "STORE", Path(directory)):
                 with patch.object(api_app.engine, "describe_interface", return_value=interface):
-                    with patch.object(api_app.engine, "OPERATORS", {"rank": object()}):
+                    with patch.object(api_app.engine, "OPERATORS", {"rank": object(), "ts_mean": object()}):
                         with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
                             with patch.object(api_app, "retrieve_similar", return_value=[{
                                 "similarity": 0.97,
