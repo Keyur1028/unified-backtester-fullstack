@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from similarity_retrieval import (
+    MAX_INDEX_FILE_BYTES,
     MAX_TOKENS_PER_IDEA,
     cosine_similarity,
     idea_tokens,
@@ -97,6 +98,46 @@ class SimilarityRetrievalTests(unittest.TestCase):
 
             matches = retrieve_similar(path, "momentum trend and volume", "model-a", "catalog-a")
             self.assertEqual(matches[0]["ideas"][0]["expression"], "rank(close)")
+
+    def test_legacy_oversized_entry_is_compacted_when_read_and_rewritten(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "index.json"
+            path.write_text(json.dumps({
+                "version": 1,
+                "entries": [{
+                    "token_signature": "legacy",
+                    "tokens": ["momentum"] * (MAX_TOKENS_PER_IDEA + 20),
+                    "model": "model-a",
+                    "catalog_fingerprint": "catalog-a",
+                    "response": {
+                        "ideas": [{
+                            "expression": "rank(close)",
+                            "hypothesis": "H" * 1000,
+                            "unexpected_payload": "X" * 10000,
+                        }],
+                        "unexpected_top_level": "Y" * 10000,
+                    },
+                }],
+            }), encoding="utf-8")
+
+            matches = retrieve_similar(path, "momentum", "model-a", "catalog-a")
+            self.assertEqual(len(matches), 1)
+            self.assertEqual(len(matches[0]["matched_tokens"]), MAX_TOKENS_PER_IDEA)
+            self.assertEqual(len(matches[0]["ideas"][0]["hypothesis"]), 300)
+            self.assertNotIn("unexpected_payload", matches[0]["ideas"][0])
+
+            store_idea_response(path, "new momentum and volume idea", "model-a", "catalog-a", {"ideas": []})
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            legacy = persisted["entries"][0]
+            self.assertEqual(len(legacy["tokens"]), MAX_TOKENS_PER_IDEA)
+            self.assertNotIn("unexpected_top_level", legacy["response"])
+            self.assertLess(len(path.read_bytes()), MAX_INDEX_FILE_BYTES)
+
+    def test_oversized_index_is_a_miss(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "index.json"
+            path.write_text(" " * (MAX_INDEX_FILE_BYTES + 1), encoding="utf-8")
+            self.assertEqual(retrieve_similar(path, "momentum idea", "model-a", "catalog-a"), [])
 
     def test_corrupt_index_is_a_miss(self):
         with tempfile.TemporaryDirectory() as directory:
