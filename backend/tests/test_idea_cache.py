@@ -105,7 +105,7 @@ class IdeaCacheTests(unittest.TestCase):
     def test_oversized_response_is_not_written(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cache.json"
-            write_cached_response(path, "key", {"ideas": [{"expression": "rank(close)", "hypothesis": "x" * MAX_RESPONSE_BYTES}]})
+            write_cached_response(path, "key", {"value": "x" * MAX_RESPONSE_BYTES})
             self.assertFalse(path.exists())
 
     def test_oversized_cache_file_is_a_miss(self):
