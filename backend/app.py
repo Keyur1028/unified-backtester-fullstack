@@ -15,6 +15,7 @@ import alpha_engine as engine
 from idea_cache import make_cache_key, read_cached_response, write_cached_response
 from candidate_validation import VALIDATOR_VERSION, catalog_fingerprint, validate_expression
 from similarity_retrieval import idea_tokens, retrieve_similar, store_idea_response
+from idea_similarity_safety import has_directional_conflict
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
@@ -173,6 +174,7 @@ def generate_alpha_ideas():
         (
             row for row in similar_ideas
             if len(query_tokens) >= 5 and row.get("similarity", 0) >= 0.92
+            and not has_directional_conflict(query_tokens, row.get("matched_tokens", []))
             and isinstance(row.get("ideas"), list) and row["ideas"]
         ),
         None,
@@ -189,7 +191,8 @@ def generate_alpha_ideas():
             },
             "note": (
                 "Reused candidates from a highly similar prior prompt to avoid a model call. "
-                "Similarity is lexical, not semantic; verify the expressions and run backtests "
+                "Directional-conflict checks are heuristic and lexical similarity is not semantic; "
+                "verify the expressions and run backtests "
                 "before interpreting their research value."
             ),
             "retrieval": {
