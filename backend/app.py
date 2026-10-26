@@ -59,6 +59,7 @@ def valid_cached_ideas(ideas, fields, operators):
         accepted.append(candidate)
     return accepted
 
+
 def pairs(raw):
     if not isinstance(raw, dict): return []
     out = []
