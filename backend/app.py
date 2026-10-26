@@ -16,6 +16,7 @@ from idea_cache import make_cache_key, read_cached_response, write_cached_respon
 from candidate_validation import VALIDATOR_VERSION, catalog_fingerprint, validate_expression
 from similarity_retrieval import idea_tokens, retrieve_similar, store_idea_response
 from idea_similarity_safety import has_directional_conflict
+from retrieval_context import format_retrieval_context
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
@@ -255,16 +256,14 @@ def generate_alpha_ideas():
         "state that limitation in risks and propose the closest honest daily OHLCV-only proxy. Generate distinct hypotheses, not merely different window lengths."
     )
     if similar_ideas:
-        examples = [
-            {"similarity": row["similarity"], "ideas": row["ideas"]}
-            for row in similar_ideas
-        ]
-        prompt += (
-            "\\nRetrieved prior candidates (lexical similarity; examples only, not proof of validity): "
-            + json.dumps(examples)
-            + "\\nUse these only as research context. Do not copy an expression unless it fits the current idea; "
-              "produce distinct candidates and still obey the active field/operator registry."
-        )
+        examples = format_retrieval_context(similar_ideas)
+        if examples != "[]":
+            prompt += (
+                "\\nRetrieved prior candidates (compact lexical matches; examples only, not proof of validity): "
+                + examples
+                + "\\nUse these only as research context. Do not copy an expression unless it fits the current idea; "
+                  "produce distinct candidates and still obey the active field/operator registry."
+            )
     try:
         from google import genai
         client = genai.Client(api_key=api_key)
