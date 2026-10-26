@@ -2,7 +2,7 @@
 
 This is deterministic lexical retrieval (token-weighted cosine similarity), not
 an embedding model or a semantic vector database. Raw prompts are not persisted;
-the index stores normalized tokens plus validated candidate metadata. Entries
+the index stores normalized tokens plus bounded candidate metadata. Entries
 are scoped to the active model and engine catalog fingerprint.
 """
 from __future__ import annotations
@@ -18,21 +18,32 @@ from typing import Any, Iterable
 
 INDEX_VERSION = 1
 DEFAULT_MAX_ENTRIES = 300
+MAX_TOKENS_PER_IDEA = 256
+MAX_STORED_CANDIDATES = 3
 _TOKEN_RE = re.compile(r"[a-z][a-z0-9_]{1,40}", re.IGNORECASE)
 _STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
     "in", "into", "is", "it", "of", "on", "or", "that", "the", "this", "to",
     "with", "would", "want", "strategy", "idea", "capture", "using",
 }
+_CANDIDATE_TEXT_LIMITS = {
+    "id": 48,
+    "name": 100,
+    "hypothesis": 300,
+    "expression": 1000,
+    "rationale": 250,
+    "expected_behavior": 200,
+    "validation": 80,
+}
 
 
 def idea_tokens(idea: str) -> list[str]:
-    """Return normalized lexical features without retaining the original prompt."""
+    """Return bounded normalized lexical features, not the original prompt."""
     return [
         token.casefold()
         for token in _TOKEN_RE.findall(str(idea))
         if token.casefold() not in _STOPWORDS
-    ]
+    ][:MAX_TOKENS_PER_IDEA]
 
 
 def cosine_similarity(left: Iterable[str], right: Iterable[str]) -> float:
@@ -46,6 +57,48 @@ def cosine_similarity(left: Iterable[str], right: Iterable[str]) -> float:
     norm_a = math.sqrt(sum(count * count for count in a.values()))
     norm_b = math.sqrt(sum(count * count for count in b.values()))
     return dot / (norm_a * norm_b)
+
+
+def _compact_response(response: Any) -> dict[str, Any]:
+    """Keep only bounded candidate fields needed for retrieval and reuse."""
+    raw_ideas = response.get("ideas", []) if isinstance(response, dict) else []
+    if not isinstance(raw_ideas, list):
+        return {"ideas": []}
+
+    ideas = []
+    for item in raw_ideas[:MAX_STORED_CANDIDATES]:
+        if not isinstance(item, dict):
+            continue
+        candidate: dict[str, Any] = {}
+        expression = item.get("expression")
+        if isinstance(expression, str) and expression.strip():
+            # Never truncate expressions: a clipped expression could change meaning.
+            if len(expression.strip()) > _CANDIDATE_TEXT_LIMITS["expression"]:
+                continue
+        for field, limit in _CANDIDATE_TEXT_LIMITS.items():
+            value = item.get(field)
+            if isinstance(value, str) and value.strip():
+                candidate[field] = value.strip()[:limit]
+        if isinstance(item.get("risks"), list):
+            risks = [
+                risk.strip()[:160]
+                for risk in item["risks"][:3]
+                if isinstance(risk, str) and risk.strip()
+            ]
+            if risks:
+                candidate["risks"] = risks
+        provenance = item.get("provenance")
+        if isinstance(provenance, dict):
+            compact_provenance = {
+                key: str(provenance[key])[:120]
+                for key in ("validator", "catalog_fingerprint", "scope")
+                if isinstance(provenance.get(key), str)
+            }
+            if compact_provenance:
+                candidate["provenance"] = compact_provenance
+        if candidate:
+            ideas.append(candidate)
+    return {"ideas": ideas}
 
 
 def retrieve_similar(
@@ -81,12 +134,13 @@ def retrieve_similar(
         response = entry.get("response")
         if not isinstance(stored_tokens, list) or not isinstance(response, dict):
             continue
-        score = cosine_similarity(tokens, [str(x) for x in stored_tokens])
+        score = cosine_similarity(tokens, [str(x) for x in stored_tokens[:MAX_TOKENS_PER_IDEA]])
         if score >= min_similarity:
+            ideas = response.get("ideas", [])
             results.append({
                 "similarity": round(score, 4),
-                "matched_tokens": [str(token).casefold() for token in stored_tokens],
-                "ideas": response.get("ideas", [])[:3] if isinstance(response.get("ideas"), list) else [],
+                "matched_tokens": [str(token).casefold() for token in stored_tokens[:MAX_TOKENS_PER_IDEA]],
+                "ideas": ideas[:MAX_STORED_CANDIDATES] if isinstance(ideas, list) else [],
             })
     results.sort(key=lambda row: row["similarity"], reverse=True)
     return results[:max(0, int(limit))]
@@ -100,7 +154,7 @@ def store_idea_response(
     response: dict[str, Any],
     max_entries: int = DEFAULT_MAX_ENTRIES,
 ) -> None:
-    """Persist validated response metadata and tokens, never the raw prompt."""
+    """Persist bounded candidate metadata and tokens, never the raw prompt."""
     tokens = idea_tokens(idea)
     if not tokens:
         return
@@ -130,7 +184,7 @@ def store_idea_response(
         "tokens": tokens,
         "model": model,
         "catalog_fingerprint": catalog_fingerprint,
-        "response": response,
+        "response": _compact_response(response),
     })
     entries = entries[-max(1, int(max_entries)):]
     fd, temporary = tempfile.mkstemp(prefix=destination.name, suffix=".tmp", dir=str(destination.parent))
