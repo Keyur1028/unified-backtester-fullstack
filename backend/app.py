@@ -208,28 +208,28 @@ def generate_alpha_ideas():
         reusable_ideas = valid_cached_ideas(near_duplicate["ideas"], fields, operators)
         if reusable_ideas:
             result = {
-            "ideas": reusable_ideas,
-            "rejected": [],
-            "model": model,
-            "provenance": {
-                "validator": VALIDATOR_VERSION,
-                "catalog_fingerprint": catalog_id,
-                "scope": "static-syntax-and-registry-only",
-            },
-            "note": (
-                "Reused candidates from a highly similar prior prompt to avoid a model call. "
-                "Directional-conflict checks are heuristic and lexical similarity is not semantic; "
-                "verify the expressions and run backtests "
-                "before interpreting their research value."
-            ),
-            "retrieval": {
-                "strategy": "local-lexical-cosine",
-                "matches_used": 1,
-                "similarity": near_duplicate["similarity"],
-                "raw_prompt_persisted": False,
-            },
-            "cache": {"hit": True, "strategy": "similarity"},
-        }
+                "ideas": reusable_ideas,
+                "rejected": [],
+                "model": model,
+                "provenance": {
+                    "validator": VALIDATOR_VERSION,
+                    "catalog_fingerprint": catalog_id,
+                    "scope": "static-syntax-and-registry-only",
+                },
+                "note": (
+                    "Reused candidates from a highly similar prior prompt to avoid a model call. "
+                    "Directional-conflict checks are heuristic and lexical similarity is not semantic; "
+                    "verify the expressions and run backtests "
+                    "before interpreting their research value."
+                ),
+                "retrieval": {
+                    "strategy": "local-lexical-cosine",
+                    "matches_used": 1,
+                    "similarity": near_duplicate["similarity"],
+                    "raw_prompt_persisted": False,
+                },
+                "cache": {"hit": True, "strategy": "similarity"},
+            }
             try:
                 write_cached_response(cache_path, cache_key, result)
             except OSError:
