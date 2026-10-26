@@ -39,28 +39,6 @@ def num(v):
     except (TypeError, ValueError):
         return None
 
-
-def valid_cached_ideas(ideas, fields, operators):
-    """Fail closed when cached candidate expressions no longer validate."""
-    if not isinstance(ideas, list) or not ideas:
-        return []
-    accepted = []
-    for item in ideas:
-        if not isinstance(item, dict):
-            return []
-        expression = str(item.get("expression", "")).strip()
-        try:
-            valid, _reason = validate_expression(expression, fields, operators)
-        except Exception:
-            return []
-        if not valid:
-            return []
-        candidate = dict(item)
-        candidate["expression"] = expression
-        accepted.append(candidate)
-    return accepted
-
-
 def pairs(raw):
     if not isinstance(raw, dict): return []
     out = []
@@ -181,12 +159,8 @@ def generate_alpha_ideas():
     cache_path = STORE / "idea_generation_cache.json"
     cached = read_cached_response(cache_path, cache_key)
     if cached is not None:
-        cached_ideas = valid_cached_ideas(cached.get("ideas"), fields, operators)
-        if cached_ideas:
-            cached["ideas"] = cached_ideas
-            cached["cache"] = {"hit": True, "strategy": "exact-match"}
-            return jsonify(cached)
-        app.logger.warning("Ignoring invalid exact-match alpha cache entry")
+        cached["cache"] = {"hit": True, "strategy": "exact-match"}
+        return jsonify(cached)
 
     catalog_id = catalog_fingerprint(fields, operators)
     retrieval_path = STORE / "idea_retrieval_index.json"
@@ -207,37 +181,34 @@ def generate_alpha_ideas():
         None,
     )
     if near_duplicate is not None:
-        reusable_ideas = valid_cached_ideas(near_duplicate["ideas"], fields, operators)
-        if reusable_ideas:
-            result = {
-                "ideas": reusable_ideas,
-                "rejected": [],
-                "model": model,
-                "provenance": {
-                    "validator": VALIDATOR_VERSION,
-                    "catalog_fingerprint": catalog_id,
-                    "scope": "static-syntax-and-registry-only",
-                },
-                "note": (
-                    "Reused candidates from a highly similar prior prompt to avoid a model call. "
-                    "Directional-conflict checks are heuristic and lexical similarity is not semantic; "
-                    "verify the expressions and run backtests "
-                    "before interpreting their research value."
-                ),
-                "retrieval": {
-                    "strategy": "local-lexical-cosine",
-                    "matches_used": 1,
-                    "similarity": near_duplicate["similarity"],
-                    "raw_prompt_persisted": False,
-                },
-                "cache": {"hit": True, "strategy": "similarity"},
-            }
-            try:
-                write_cached_response(cache_path, cache_key, result)
-            except OSError:
-                app.logger.warning("Could not persist similarity cache hit", exc_info=True)
-            return jsonify(result)
-        app.logger.warning("Ignoring invalid similar-alpha candidates")
+        result = {
+            "ideas": near_duplicate["ideas"],
+            "rejected": [],
+            "model": model,
+            "provenance": {
+                "validator": VALIDATOR_VERSION,
+                "catalog_fingerprint": catalog_id,
+                "scope": "static-syntax-and-registry-only",
+            },
+            "note": (
+                "Reused candidates from a highly similar prior prompt to avoid a model call. "
+                "Directional-conflict checks are heuristic and lexical similarity is not semantic; "
+                "verify the expressions and run backtests "
+                "before interpreting their research value."
+            ),
+            "retrieval": {
+                "strategy": "local-lexical-cosine",
+                "matches_used": 1,
+                "similarity": near_duplicate["similarity"],
+                "raw_prompt_persisted": False,
+            },
+            "cache": {"hit": True, "strategy": "similarity"},
+        }
+        try:
+            write_cached_response(cache_path, cache_key, result)
+        except OSError:
+            app.logger.warning("Could not persist similarity cache hit", exc_info=True)
+        return jsonify(result)
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
