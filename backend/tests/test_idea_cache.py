@@ -4,7 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from idea_cache import make_cache_key, normalize_idea, read_cached_response, write_cached_response
+from idea_cache import (
+    MAX_CACHE_FILE_BYTES,
+    MAX_RESPONSE_BYTES,
+    make_cache_key,
+    normalize_idea,
+    read_cached_response,
+    write_cached_response,
+)
 
 
 class IdeaCacheTests(unittest.TestCase):
@@ -43,6 +50,89 @@ class IdeaCacheTests(unittest.TestCase):
             self.assertIsNone(read_cached_response(path, "one"))
             self.assertEqual(read_cached_response(path, "two"), {"value": 2})
             self.assertEqual(read_cached_response(path, "three"), {"value": 3})
+
+    def test_cached_candidate_payload_is_allowlisted_and_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cache.json"
+            key = "a" * 64
+            response = {
+                "ideas": [{
+                    "id": "idea-1",
+                    "name": "N" * 500,
+                    "expression": "rank(close)",
+                    "hypothesis": "H" * 500,
+                    "rationale": "R" * 500,
+                    "expected_behavior": "E" * 500,
+                    "risks": ["x" * 300, "risk two", "risk three", "risk four"],
+                    "validation": "V" * 200,
+                    "provenance": {
+                        "validator": "validator-a",
+                        "catalog_fingerprint": "catalog-a",
+                        "scope": "static",
+                        "unexpected": "drop me",
+                    },
+                    "unexpected_model_payload": "X" * 10000,
+                }, {"expression": "z" * 1001, "name": "do not truncate expression"}],
+                "rejected": [{"expression": "q" * 2000, "reason": "r" * 500}],
+                "model": "test-model",
+                "note": "n" * 1000,
+                "unexpected_top_level": "Y" * 10000,
+            }
+            write_cached_response(path, key, response)
+            cached = read_cached_response(path, key)
+            self.assertEqual(len(cached["ideas"]), 1)
+            candidate = cached["ideas"][0]
+            self.assertEqual(candidate["expression"], "rank(close)")
+            self.assertEqual(len(candidate["name"]), 100)
+            self.assertEqual(len(candidate["hypothesis"]), 300)
+            self.assertEqual(len(candidate["rationale"]), 250)
+            self.assertEqual(len(candidate["expected_behavior"]), 200)
+            self.assertEqual(len(candidate["risks"]), 3)
+            self.assertEqual(len(candidate["risks"][0]), 160)
+            self.assertEqual(set(candidate["provenance"]), {"validator", "catalog_fingerprint", "scope"})
+            self.assertNotIn("unexpected_model_payload", candidate)
+            self.assertNotIn("unexpected_top_level", cached)
+            self.assertEqual(len(cached["rejected"][0]["expression"]), 1000)
+            self.assertEqual(len(cached["rejected"][0]["reason"]), 250)
+            self.assertLess(path.stat().st_size, MAX_CACHE_FILE_BYTES)
+
+    def test_oversized_expression_is_excluded_not_truncated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cache.json"
+            write_cached_response(path, "key", {"ideas": [{"expression": "x" * 1001}]})
+            self.assertEqual(read_cached_response(path, "key")["ideas"], [])
+
+    def test_oversized_response_is_not_written(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cache.json"
+            write_cached_response(path, "key", {"ideas": [{"expression": "rank(close)", "hypothesis": "x" * MAX_RESPONSE_BYTES}]})
+            self.assertFalse(path.exists())
+
+    def test_oversized_cache_file_is_a_miss(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cache.json"
+            path.write_text(" " * (MAX_CACHE_FILE_BYTES + 1), encoding="utf-8")
+            self.assertIsNone(read_cached_response(path, "key"))
+
+    def test_legacy_entries_are_compacted_when_cache_is_rewritten(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cache.json"
+            legacy_key = "b" * 64
+            path.write_text(json.dumps({
+                "version": 1,
+                "entries": {
+                    legacy_key: {"response": {
+                        "ideas": [{"expression": "rank(close)", "hypothesis": "H" * 1000, "unknown": "X" * 10000}],
+                        "unknown_top_level": "Y" * 10000,
+                    }}
+                },
+            }), encoding="utf-8")
+            write_cached_response(path, "new-key", {"ideas": [{"expression": "rank(volume)"}]})
+            legacy = read_cached_response(path, legacy_key)
+            self.assertEqual(len(legacy["ideas"][0]["hypothesis"]), 300)
+            self.assertNotIn("unknown", legacy["ideas"][0])
+            self.assertNotIn("unknown_top_level", legacy)
+            self.assertLess(path.stat().st_size, MAX_CACHE_FILE_BYTES)
 
 
 if __name__ == "__main__":
