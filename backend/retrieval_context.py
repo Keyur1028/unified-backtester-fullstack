@@ -62,3 +62,16 @@ def format_retrieval_context(matches: Any) -> str:
             compact.pop()
         encoded = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
     return encoded
+
+def append_retrieval_context(prompt: str, matches: Any) -> str:
+    """Append compact retrieval examples with real prompt line separators."""
+    examples = format_retrieval_context(matches)
+    if examples == "[]":
+        return prompt
+    return (
+        prompt
+        + "\nRetrieved prior candidates (compact lexical matches; examples only, not proof of validity): "
+        + examples
+        + "\nUse these only as research context. Do not copy an expression unless it fits the current idea; "
+        "produce distinct candidates and still obey the active field/operator registry."
+    )
