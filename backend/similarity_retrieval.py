@@ -20,6 +20,7 @@ INDEX_VERSION = 1
 DEFAULT_MAX_ENTRIES = 300
 MAX_TOKENS_PER_IDEA = 256
 MAX_STORED_CANDIDATES = 3
+MAX_INDEX_FILE_BYTES = 5 * 1024 * 1024
 _TOKEN_RE = re.compile(r"[a-z][a-z0-9_]{1,40}", re.IGNORECASE)
 _STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
@@ -101,6 +102,22 @@ def _compact_response(response: Any) -> dict[str, Any]:
     return {"ideas": ideas}
 
 
+def _compact_index_entry(entry: Any) -> dict[str, Any] | None:
+    """Normalize an existing entry so a new write also compacts legacy data."""
+    if not isinstance(entry, dict) or not isinstance(entry.get("tokens"), list):
+        return None
+    tokens = [str(token)[:41] for token in entry["tokens"][:MAX_TOKENS_PER_IDEA]]
+    if not tokens:
+        return None
+    return {
+        "token_signature": str(entry.get("token_signature", ""))[:64],
+        "tokens": tokens,
+        "model": str(entry.get("model", ""))[:100],
+        "catalog_fingerprint": str(entry.get("catalog_fingerprint", ""))[:128],
+        "response": _compact_response(entry.get("response")),
+    }
+
+
 def retrieve_similar(
     path: str | Path,
     idea: str,
@@ -114,7 +131,10 @@ def retrieve_similar(
     if not tokens:
         return []
     try:
-        with Path(path).open("r", encoding="utf-8") as handle:
+        source = Path(path)
+        if source.stat().st_size > MAX_INDEX_FILE_BYTES:
+            return []
+        with source.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
         if not isinstance(data, dict) or data.get("version") != INDEX_VERSION:
             return []
@@ -125,22 +145,19 @@ def retrieve_similar(
         return []
 
     results = []
-    for entry in entries:
-        if not isinstance(entry, dict):
+    for raw_entry in entries:
+        entry = _compact_index_entry(raw_entry)
+        if entry is None:
             continue
-        if entry.get("model") != model or entry.get("catalog_fingerprint") != catalog_fingerprint:
+        if entry["model"] != model or entry["catalog_fingerprint"] != catalog_fingerprint:
             continue
-        stored_tokens = entry.get("tokens")
-        response = entry.get("response")
-        if not isinstance(stored_tokens, list) or not isinstance(response, dict):
-            continue
-        score = cosine_similarity(tokens, [str(x) for x in stored_tokens[:MAX_TOKENS_PER_IDEA]])
+        stored_tokens = entry["tokens"]
+        score = cosine_similarity(tokens, stored_tokens)
         if score >= min_similarity:
-            ideas = response.get("ideas", [])
             results.append({
                 "similarity": round(score, 4),
-                "matched_tokens": [str(token).casefold() for token in stored_tokens[:MAX_TOKENS_PER_IDEA]],
-                "ideas": ideas[:MAX_STORED_CANDIDATES] if isinstance(ideas, list) else [],
+                "matched_tokens": stored_tokens,
+                "ideas": entry["response"]["ideas"],
             })
     results.sort(key=lambda row: row["similarity"], reverse=True)
     return results[:max(0, int(limit))]
@@ -162,12 +179,16 @@ def store_idea_response(
     destination.parent.mkdir(parents=True, exist_ok=True)
     entries: list[dict[str, Any]] = []
     try:
-        with destination.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        if isinstance(data, dict) and data.get("version") == INDEX_VERSION:
-            existing = data.get("entries", [])
-            if isinstance(existing, list):
-                entries = [x for x in existing if isinstance(x, dict)]
+        if destination.stat().st_size <= MAX_INDEX_FILE_BYTES:
+            with destination.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict) and data.get("version") == INDEX_VERSION:
+                existing = data.get("entries", [])
+                if isinstance(existing, list):
+                    entries = [
+                        compact for row in existing
+                        if (compact := _compact_index_entry(row)) is not None
+                    ]
     except (OSError, ValueError, TypeError):
         pass
 
