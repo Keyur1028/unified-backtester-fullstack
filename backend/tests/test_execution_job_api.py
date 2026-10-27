@@ -74,7 +74,7 @@ class ExecutionJobApiTests(unittest.TestCase):
         with patch.object(api_app, "run_backtest", return_value=envelope):
             with patch.object(api_app.engine.TRACKER, "save"):
                 response = self.client.post(
-                    "/api/execution-jobs", json={"expression": "unsupported(close)", "universe": "NIFTY50", "start": "2022-01-01", "end": "2023-01-01"}
+                    "/api/execution-jobs", json={"expression": "rank(close)", "universe": "NIFTY50", "start": "2022-01-01", "end": "2023-01-01"}
                 )
                 self.assertEqual(response.status_code, 202)
                 queued = response.get_json()
@@ -96,6 +96,21 @@ class ExecutionJobApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
+        self.assertEqual(self.store.list_jobs(), [])
+
+    def test_invalid_expression_is_rejected_before_job_creation(self):
+        response = self.client.post(
+            "/api/execution-jobs",
+            json={
+                "expression": "unknown_operator(close)",
+                "universe": "NIFTY50",
+                "start": "2022-01-01",
+                "end": "2023-01-01",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
+        self.assertIn("Unsupported operator", response.get_json()["error"]["message"])
         self.assertEqual(self.store.list_jobs(), [])
 
     def test_missing_required_backtest_fields_are_rejected_before_job_creation(self):
