@@ -21,6 +21,7 @@ export const getExamples = () => apiRequest("/examples");
 export const getExperiments = () => apiRequest("/experiments");
 export const getExecutionJobs = (limit = 30) => apiRequest(`/execution-jobs?limit=${encodeURIComponent(limit)}`);
 export const getExecutionJob = (jobId) => apiRequest(`/execution-jobs/${encodeURIComponent(jobId)}`);
+export const cancelExecutionJob = (jobId) => apiRequest(`/execution-jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
 
 // Keep the legacy endpoint available for compatibility and direct API comparisons.
 export const runLegacyBacktest = (payload) => apiRequest("/backtest", {
