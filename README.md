@@ -47,7 +47,7 @@ Open `http://localhost:5173`. Vite forwards `/api/*` to the Flask API on port 30
 - `GET /api/examples` — starter alpha expressions.
 - `GET /api/experiments` — recent notebook experiment-tracker entries.
 - `POST /api/backtest` — legacy synchronous backtest endpoint; its existing response contract is retained.
-- `POST /api/execution-jobs` — persist a backtest request and return `202 Accepted` with a queued job record; a separate worker executes it.
+- `POST /api/execution-jobs` — validate and normalize the full backtest configuration before persisting it; valid requests return `202 Accepted` with a queued job record, while invalid requests return `400` without creating a job.
 - `POST /api/execution-jobs/<job_id>/cancel` — cancel a job only while it is queued; returns `409` if it is already running or terminal.
 - `GET /api/execution-jobs?limit=20` — list recent execution records. `limit` must be between 1 and 100.
 - `GET /api/execution-jobs/<job_id>` — retrieve one persisted execution record by ID.
