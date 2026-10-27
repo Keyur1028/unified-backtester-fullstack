@@ -85,6 +85,25 @@ class ExecutionJobApiContractTests(unittest.TestCase):
         listed = self.client.get("/api/execution-jobs?limit=10")
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(listed.get_json()["count"], 1)
+        listed_job = listed.get_json()["jobs"][0]
+        self.assertNotIn("result", listed_job)
+        self.assertTrue(listed_job["result_available"])
+        self.assertEqual(listed_job["job_id"], job["job_id"])
+        # The detail endpoint remains the source for the full stored result.
+        self.assertEqual(fetched.get_json()["result"]["status"], "success")
+
+    def test_list_marks_missing_results_without_returning_result_payloads(self):
+        response = self.client.post(
+            "/api/execution-jobs",
+            json={"expression": "rank(close)", "universe": "NIFTY50", "start": "2022-01-01", "end": "2023-01-01"},
+        )
+        job_id = response.get_json()["job_id"]
+        listed = self.client.get("/api/execution-jobs?limit=10")
+        self.assertEqual(listed.status_code, 200)
+        item = listed.get_json()["jobs"][0]
+        self.assertEqual(item["job_id"], job_id)
+        self.assertFalse(item["result_available"])
+        self.assertNotIn("result", item)
 
     def test_runtime_backtest_failure_is_persisted_as_failed_job(self):
         self.mock_backtest.return_value = {
