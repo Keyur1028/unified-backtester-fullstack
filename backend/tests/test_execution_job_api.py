@@ -11,6 +11,7 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 import app as api_app  # noqa: E402
+from execution_job_contract import RunConfiguration  # noqa: E402
 from execution_job_store import SQLiteExecutionJobStore  # noqa: E402
 
 
@@ -86,7 +87,7 @@ class ExecutionJobApiTests(unittest.TestCase):
 
     def test_list_jobs_returns_recent_job_records(self):
         first = self.store.create_job(
-            __import__("execution_job_contract").RunConfiguration.from_payload(
+            RunConfiguration.from_payload(
                 {"expression": "rank(close)"}
             ),
             job_id="job-first",
