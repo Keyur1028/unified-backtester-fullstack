@@ -1,4 +1,4 @@
-"""Offline API tests for persisted execution-job endpoints."""
+"""Offline API tests for persisted background execution-job endpoints."""
 import os
 import sys
 import tempfile
@@ -51,16 +51,18 @@ class ExecutionJobApiTests(unittest.TestCase):
                     "/api/execution-jobs",
                     json={"expression": "rank(close)", "universe": "NIFTY50"},
                 )
-        self.assertEqual(response.status_code, 200)
-        job = response.get_json()
-        self.assertEqual(job["status"], "succeeded")
-        self.assertEqual(job["config"]["expression"], "rank(close)")
-        self.assertEqual(job["result"]["experiment_id"], "exp-test")
-        self.assertIsNone(job["error"])
+                self.assertEqual(response.status_code, 202)
+                queued = response.get_json()
+                self.assertEqual(queued["status"], "queued")
+                completed = api_app.execute_execution_job(queued["job_id"])
+        self.assertEqual(completed["status"], "succeeded")
+        self.assertEqual(completed["config"]["expression"], "rank(close)")
+        self.assertEqual(completed["result"]["experiment_id"], "exp-test")
+        self.assertIsNone(completed["error"])
 
-        fetched = self.client.get(f"/api/execution-jobs/{job['job_id']}")
+        fetched = self.client.get(f"/api/execution-jobs/{queued['job_id']}")
         self.assertEqual(fetched.status_code, 200)
-        self.assertEqual(fetched.get_json(), job)
+        self.assertEqual(fetched.get_json(), completed)
 
     def test_engine_error_is_persisted_as_failed_job(self):
         envelope = {
@@ -74,11 +76,12 @@ class ExecutionJobApiTests(unittest.TestCase):
                 response = self.client.post(
                     "/api/execution-jobs", json={"expression": "unsupported(close)"}
                 )
-        self.assertEqual(response.status_code, 200)
-        job = response.get_json()
-        self.assertEqual(job["status"], "failed")
-        self.assertEqual(job["error"]["type"], "ValidationError")
-        self.assertIsNone(job["result"])
+                self.assertEqual(response.status_code, 202)
+                queued = response.get_json()
+                completed = api_app.execute_execution_job(queued["job_id"])
+        self.assertEqual(completed["status"], "failed")
+        self.assertEqual(completed["error"]["type"], "ValidationError")
+        self.assertIsNone(completed["result"])
 
     def test_invalid_request_is_rejected_before_job_creation(self):
         response = self.client.post("/api/execution-jobs", json=["not", "an", "object"])
@@ -86,7 +89,6 @@ class ExecutionJobApiTests(unittest.TestCase):
         self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
 
     def test_non_finite_configuration_is_rejected_before_job_creation(self):
-        # Python's JSON decoder can accept NaN even though it is not valid JSON data.
         response = self.client.post(
             "/api/execution-jobs",
             data='{"expression":"rank(close)","value":NaN}',
@@ -98,9 +100,7 @@ class ExecutionJobApiTests(unittest.TestCase):
 
     def test_list_jobs_returns_recent_job_records(self):
         first = self.store.create_job(
-            RunConfiguration.from_payload(
-                {"expression": "rank(close)"}
-            ),
+            RunConfiguration.from_payload({"expression": "rank(close)"}),
             job_id="job-first",
         )
         response = self.client.get("/api/execution-jobs")
