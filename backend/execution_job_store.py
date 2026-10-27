@@ -26,7 +26,12 @@ _ALLOWED_TRANSITIONS = {
         ExecutionJobStatus.RUNNING,
         ExecutionJobStatus.CANCELLED,
     },
-    ExecutionJobStatus.RUNNING: _TERMINAL,
+    # Cancellation is only valid before a worker claims the job. Marking a
+    # running job cancelled would not stop its backtest and could hide its result.
+    ExecutionJobStatus.RUNNING: {
+        ExecutionJobStatus.SUCCEEDED,
+        ExecutionJobStatus.FAILED,
+    },
     ExecutionJobStatus.SUCCEEDED: set(),
     ExecutionJobStatus.FAILED: set(),
     ExecutionJobStatus.CANCELLED: set(),

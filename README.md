@@ -48,6 +48,7 @@ Open `http://localhost:5173`. Vite forwards `/api/*` to the Flask API on port 30
 - `GET /api/experiments` — recent notebook experiment-tracker entries.
 - `POST /api/backtest` — legacy synchronous backtest endpoint; its existing response contract is retained.
 - `POST /api/execution-jobs` — persist a backtest request and return `202 Accepted` with a queued job record; a separate worker executes it.
+- `POST /api/execution-jobs/<job_id>/cancel` — cancel a job only while it is queued; returns `409` if it is already running or terminal.
 - `GET /api/execution-jobs?limit=20` — list recent execution records. `limit` must be between 1 and 100.
 - `GET /api/execution-jobs/<job_id>` — retrieve one persisted execution record by ID.
 - `POST /api/generate-alpha` — generate candidate hypotheses and expressions with Gemini when configured.
@@ -80,7 +81,7 @@ curl -X POST http://127.0.0.1:3000/api/backtest \
 
 ## Important limitations before multi-user deployment
 
-- **Background execution:** long backtests run in separate worker processes, not the Flask request. The frontend polls job status. Configure worker process count deliberately; concurrency limits, automatic re-execution of abandoned jobs, cancellation, per-user quotas, and request timeouts remain future work. Abandoned running jobs are marked failed after a configurable heartbeat timeout, rather than automatically rerun.
+- **Background execution:** long backtests run in separate worker processes, not the Flask request. The frontend polls job status. Configure worker process count deliberately; concurrency limits, stopping an already-running backtest, per-user quotas, and request timeouts remain future work. Queued jobs can be cancelled before a worker claims them; abandoned running jobs are marked failed after a configurable heartbeat timeout rather than automatically rerun.
 - **Persistence:** execution jobs can use PostgreSQL when `EXECUTION_JOB_DATABASE_URL` is configured, or local SQLite by default. The notebook experiment tracker still uses a local JSON file, so it is not shared across instances and does not provide tenant ownership or concurrent-writer guarantees. PostgreSQL job storage alone does not make the full application multi-instance safe.
 - **Authentication and isolation:** authentication, per-user authorization, workspace isolation, managed secrets, request rate limiting, and an audit/retention policy are not implemented. Do not expose this API as a multi-user service until access controls and shared persistence are implemented.
 - **Data availability:** regression/synthetic tests are not run automatically at API startup. A healthy HTTP response does not guarantee that live data is available for every universe/date range.

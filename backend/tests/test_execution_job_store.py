@@ -74,6 +74,13 @@ class SQLiteExecutionJobStoreTests(unittest.TestCase):
         with self.assertRaises(InvalidJobTransitionError):
             self.store.transition("job-5", "running")
 
+    def test_running_job_cannot_transition_to_cancelled(self):
+        self.store.create_job(self.configuration, job_id="job-running-cancel")
+        self.store.transition("job-running-cancel", "running")
+        with self.assertRaises(InvalidJobTransitionError):
+            self.store.transition("job-running-cancel", "cancelled")
+        self.assertEqual(self.store.get_job("job-running-cancel")["status"], "running")
+
     def test_queued_job_cannot_skip_running_to_succeed(self):
         self.store.create_job(self.configuration, job_id="job-6")
         with self.assertRaises(InvalidJobTransitionError):
