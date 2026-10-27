@@ -117,6 +117,32 @@ class ExecutionJobApiTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
 
+    def test_queued_job_can_be_cancelled_through_api(self):
+        queued = self.store.create_job(
+            RunConfiguration.from_payload({"expression": "rank(close)"}),
+            job_id="cancel-queued",
+        )
+        response = self.client.post(f"/api/execution-jobs/{queued['job_id']}/cancel")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["status"], "cancelled")
+        self.assertEqual(self.store.get_job(queued["job_id"])["status"], "cancelled")
+
+    def test_running_job_cannot_be_cancelled_through_api(self):
+        queued = self.store.create_job(
+            RunConfiguration.from_payload({"expression": "rank(close)"}),
+            job_id="cancel-running",
+        )
+        self.store.transition(queued["job_id"], "running")
+        response = self.client.post(f"/api/execution-jobs/{queued['job_id']}/cancel")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["error"]["type"], "InvalidJobState")
+        self.assertEqual(self.store.get_job(queued["job_id"])["status"], "running")
+
+    def test_cancelling_unknown_job_returns_not_found(self):
+        response = self.client.post("/api/execution-jobs/missing/cancel")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.get_json()["error"]["type"], "NotFound")
+
     def test_missing_job_returns_not_found(self):
         response = self.client.get("/api/execution-jobs/not-a-job")
         self.assertEqual(response.status_code, 404)

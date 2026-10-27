@@ -22,7 +22,7 @@ from candidate_runtime_validation import validate_candidate_runtime
 from alpha_generation_service import build_generation_prompt, generate_candidates
 from backtest_service import run_backtest
 from execution_job_contract import ExecutionJobStatus, RunConfiguration
-from execution_job_store import ExecutionJobNotFoundError
+from execution_job_store import ExecutionJobNotFoundError, InvalidJobTransitionError
 from execution_job_store_factory import create_execution_job_store
 
 BASE = Path(__file__).resolve().parent
@@ -464,6 +464,25 @@ def list_execution_jobs():
             }
         }), 400
     return jsonify({"jobs": jobs, "count": len(jobs), "limit": limit}), 200
+
+
+@app.post("/api/execution-jobs/<job_id>/cancel")
+def cancel_execution_job(job_id):
+    """Cancel a queued job before a worker claims it; running jobs cannot be stopped."""
+    try:
+        job = JOB_STORE.transition(job_id, ExecutionJobStatus.CANCELLED)
+        return jsonify(job), 200
+    except ExecutionJobNotFoundError:
+        return jsonify({
+            "error": {"type": "NotFound", "message": "Execution job was not found."}
+        }), 404
+    except InvalidJobTransitionError:
+        return jsonify({
+            "error": {
+                "type": "InvalidJobState",
+                "message": "Only queued execution jobs can be cancelled; this job may already be running or finished.",
+            }
+        }), 409
 
 
 @app.get("/api/execution-jobs/<job_id>")
