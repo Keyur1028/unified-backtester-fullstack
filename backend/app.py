@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 import numpy as np
 import pandas as pd
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 from flask_cors import CORS
 try:
     from dotenv import load_dotenv
@@ -645,7 +645,7 @@ def create_execution_job():
             }
         }), 400
 
-    job = JOB_STORE.create_job(configuration)
+    job = JOB_STORE.create_job(configuration, owner_id=getattr(g, "user_id", None))
     return jsonify(job), 202
 
 
@@ -730,7 +730,7 @@ def create_execution_job_from_handoff():
             "backtest_executed": False,
         }), 400
 
-    job = JOB_STORE.create_job(configuration)
+    job = JOB_STORE.create_job(configuration, owner_id=getattr(g, "user_id", None))
     return jsonify({
         **job,
         "handoff": {
@@ -748,7 +748,7 @@ def list_execution_jobs():
     raw_limit = request.args.get("limit", "20")
     try:
         limit = int(raw_limit)
-        jobs = JOB_STORE.list_jobs(limit=limit)
+        jobs = JOB_STORE.list_jobs(limit=limit, owner_id=getattr(g, "user_id", None))
     except (TypeError, ValueError):
         return jsonify({
             "error": {
@@ -770,6 +770,7 @@ def list_execution_jobs():
 def cancel_execution_job(job_id):
     """Cancel a queued job before a worker claims it; running jobs cannot be stopped."""
     try:
+        JOB_STORE.get_job(job_id, owner_id=getattr(g, "user_id", None))
         job = JOB_STORE.transition(job_id, ExecutionJobStatus.CANCELLED)
         return jsonify(job), 200
     except ExecutionJobNotFoundError:
@@ -789,7 +790,7 @@ def cancel_execution_job(job_id):
 def get_execution_job(job_id):
     """Fetch a persisted execution-job record by identifier."""
     try:
-        return jsonify(JOB_STORE.get_job(job_id)), 200
+        return jsonify(JOB_STORE.get_job(job_id, owner_id=getattr(g, "user_id", None))), 200
     except ExecutionJobNotFoundError:
         return jsonify({
             "error": {"type": "NotFound", "message": "Execution job was not found."}
