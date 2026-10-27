@@ -89,6 +89,22 @@ class SQLiteExecutionJobStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "JSON-safe"):
             self.store.transition("job-7", "failed", error={"value": float("nan")})
 
+    def test_list_jobs_returns_newest_records_with_bounded_limit(self):
+        for index in range(3):
+            self.store.create_job(
+                RunConfiguration.from_payload({"expression": f"rank(close) + {index}"}),
+                job_id=f"job-{index}",
+            )
+        jobs = self.store.list_jobs(limit=2)
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual({job["job_id"] for job in jobs}, {"job-1", "job-2"})
+
+    def test_list_jobs_rejects_invalid_limits(self):
+        for limit in (0, 101, True, "2"):
+            with self.subTest(limit=limit):
+                with self.assertRaises((TypeError, ValueError)):
+                    self.store.list_jobs(limit=limit)
+
     def test_unknown_job_raises_not_found(self):
         with self.assertRaises(ExecutionJobNotFoundError):
             self.store.get_job("missing")

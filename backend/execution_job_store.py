@@ -134,6 +134,19 @@ class SQLiteExecutionJobStore:
             raise ExecutionJobNotFoundError(f"Execution job '{job_id}' was not found.")
         return self._decode(row)
 
+    def list_jobs(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Return the newest job records, with a bounded page size."""
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise TypeError("limit must be an integer.")
+        if not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100.")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM execution_jobs ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [self._decode(row) for row in rows]
+
     def transition(
         self,
         job_id: str,

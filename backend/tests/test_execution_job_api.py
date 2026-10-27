@@ -11,6 +11,7 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 import app as api_app  # noqa: E402
+from execution_job_contract import RunConfiguration  # noqa: E402
 from execution_job_store import SQLiteExecutionJobStore  # noqa: E402
 
 
@@ -83,6 +84,27 @@ class ExecutionJobApiTests(unittest.TestCase):
         response = self.client.post("/api/execution-jobs", json=["not", "an", "object"])
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
+
+    def test_list_jobs_returns_recent_job_records(self):
+        first = self.store.create_job(
+            RunConfiguration.from_payload(
+                {"expression": "rank(close)"}
+            ),
+            job_id="job-first",
+        )
+        response = self.client.get("/api/execution-jobs")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["limit"], 20)
+        self.assertEqual(body["jobs"][0]["job_id"], first["job_id"])
+
+    def test_list_jobs_rejects_invalid_limit(self):
+        for limit in ("0", "101", "abc"):
+            with self.subTest(limit=limit):
+                response = self.client.get(f"/api/execution-jobs?limit={limit}")
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
 
     def test_missing_job_returns_not_found(self):
         response = self.client.get("/api/execution-jobs/not-a-job")
