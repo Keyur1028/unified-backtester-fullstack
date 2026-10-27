@@ -11,7 +11,7 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line,
   LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
-import { getExamples, getHealth, getMeta, getExperiments, runBacktest, generateAlphaIdeas } from "./api";
+import { getExamples, getHealth, getMeta, getExperiments, getExecutionJobs, runBacktest, generateAlphaIdeas } from "./api";
 import { demoExamples, demoAlphas, makeDemoResult } from "./mockData";
 
 const NAV = [
@@ -104,6 +104,7 @@ export default function App() {
   const [selectedRuns, setSelectedRuns] = useState(["AL-1042","AL-1039"]);
   const [validationOpen, setValidationOpen] = useState({ leakage: true, coverage: true });
   const [history, setHistory] = useState([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
 
   const notify = useCallback((msg) => { setToast(msg); window.setTimeout(() => setToast(""), 3000); }, []);
   const refreshHealth = useCallback(async () => {
@@ -113,7 +114,25 @@ export default function App() {
       setHealth("connected"); setDataMode(h.data_mode || "unknown");
       const m = await getMeta(); setMeta(m);
       try { const ex = await getExamples(); if (Array.isArray(ex) && ex.length) setExamples(ex); } catch {}
-      try { const runs = await getExperiments(); if (Array.isArray(runs)) setHistory(runs); } catch {}
+      try {
+        const response = await getExecutionJobs(30);
+        if (Array.isArray(response?.jobs)) {
+          setHistory(response.jobs.map(job => ({
+            experiment_id: job.job_id,
+            run_id: job.job_id,
+            expression: job.config?.expression || job.result?.expression || job.result?.config?.expression || "",
+            status: job.status,
+            created_at: job.created_at,
+            error: job.error
+          })));
+          setHistoryLoaded(true);
+        }
+      } catch {
+        try {
+          const runs = await getExperiments();
+          if (Array.isArray(runs)) { setHistory(runs); setHistoryLoaded(true); }
+        } catch {}
+      }
     } catch {
       setHealth("offline"); setMeta(null);
     }
@@ -344,11 +363,11 @@ export default function App() {
 
       {(page === "saved" || page === "runs") && <section className="page-content">
         <div className="page-title-row"><div><div className="eyebrow"><span className="eyebrow-line"/> RESEARCH LIBRARY</div><h1>{page==="saved"?"Saved alphas":"Runs & history"}</h1><p className="page-subtitle">{page==="saved"?"Manage reusable expressions and draft versions.":"Inspect run status, immutable snapshots and experiment outputs."}</p></div><div className="title-actions"><button className="btn btn-primary" onClick={()=>{setAlphaName("Untitled alpha");setExpression("");setSelectedAlpha(null);nav("create");}}><Plus size={15}/> New alpha</button></div></div>
-        <Panel title={page==="saved"?"Alpha library":"Experiment history"} subtitle={page==="saved"?"Saved expressions in this workspace":"Recent runs in this browser preview"} action={<button className="btn btn-secondary" onClick={()=>page==="saved"?saveAlpha():refreshHealth()}><RefreshCw size={14}/> Refresh</button>}>
+        <Panel title={page==="saved"?"Alpha library":"Execution job history"} subtitle={page==="saved"?"Saved expressions in this workspace":historyLoaded?"Latest persisted backtest jobs from the backend":"Backend history unavailable; showing preview rows"} action={<button className="btn btn-secondary" onClick={()=>page==="saved"?saveAlpha():refreshHealth()}><RefreshCw size={14}/> Refresh</button>}>
           <div className="table-toolbar"><div className="search-box"><Search size={15}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name, expression or run ID…"/></div><span className="muted small-text">{page==="saved"?filteredAlphas.length:history.length || 4} items</span></div>
           {page==="saved" ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Alpha</th><th>Status</th><th>Universe</th><th>Latest Sharpe</th><th>Updated</th><th/></tr></thead><tbody>{filteredAlphas.map(a=><tr key={a.id} className="clickable-row" onClick={()=>applyAlpha(a)}><td><strong>{a.name}</strong><small className="table-expression mono">{a.expression}</small></td><td><Status status={a.status}/></td><td>{a.universe}</td><td className="mono">{fmtNum(a.sharpe)}</td><td className="muted">{a.updated}</td><td><button className="btn btn-quiet" onClick={e=>{e.stopPropagation();applyAlpha(a);}}>Open <ChevronRight size={13}/></button></td></tr>)}</tbody></table></div>
-          : <div className="table-scroll"><table className="data-table"><thead><tr><th>Run ID</th><th>Expression</th><th>Status</th><th>Created</th><th/></tr></thead><tbody>{(history.length?history:[{experiment_id:"demo-8fa2c1",status:"success",expression:demoExamples[0].expression,created_at:new Date().toISOString()},{experiment_id:"demo-7c20e4",status:"success",expression:demoExamples[2].expression,created_at:new Date(Date.now()-86400000).toISOString()}]).filter(r=>`${r.experiment_id} ${r.expression}`.toLowerCase().includes(search.toLowerCase())).map((r,i)=><tr key={r.experiment_id||i}><td className="mono">{r.experiment_id || r.run_id}</td><td><code className="table-expression">{r.expression || "Expression snapshot unavailable"}</code></td><td><Status status={r.status==="success"?"Succeeded":r.status}/></td><td className="muted">{r.created_at?new Date(r.created_at).toLocaleString():"—"}</td><td><button className="btn btn-quiet" onClick={()=>nav("results")}>Inspect <ChevronRight size={13}/></button></td></tr>)}</tbody></table></div>}
-          <div className="table-foot"><span className="demo-inline">Preview mode stores drafts in memory for this browser session. Production persistence requires the Node API and Postgres layer.</span></div>
+          : <div className="table-scroll"><table className="data-table"><thead><tr><th>Run ID</th><th>Expression</th><th>Status</th><th>Created</th><th/></tr></thead><tbody>{(historyLoaded?history:(history.length?history:[{experiment_id:"demo-8fa2c1",status:"success",expression:demoExamples[0].expression,created_at:new Date().toISOString()},{experiment_id:"demo-7c20e4",status:"success",expression:demoExamples[2].expression,created_at:new Date(Date.now()-86400000).toISOString()}])).filter(r=>(String(r.experiment_id || "")+" "+String(r.run_id || "")+" "+String(r.expression || "")).toLowerCase().includes(search.toLowerCase())).map((r,i)=><tr key={r.experiment_id||r.run_id||i}><td className="mono">{r.experiment_id || r.run_id}</td><td><code className="table-expression" title={r.error?.message || ""}>{r.expression || "Expression snapshot unavailable"}</code></td><td><Status status={r.status==="success"?"Succeeded":r.status}/></td><td className="muted">{r.created_at?new Date(r.created_at).toLocaleString():"—"}</td><td><button className="btn btn-quiet" onClick={()=>nav("results")}>Inspect <ChevronRight size={13}/></button></td></tr>)}{historyLoaded && history.length===0 && <tr><td colSpan={5} className="muted">No execution jobs yet. Run a backtest to populate this history.</td></tr>}</tbody></table></div>}
+          <div className="table-foot"><span className="demo-inline">Run records are read from the backend job store. Multi-user deployments still need per-user authorization and shared storage.</span></div>
         </Panel>
         <Panel title="Compare completed runs" subtitle="Select two or more alphas to compare their latest preview metrics" action={<button className="btn btn-secondary" onClick={()=>notify("Comparison view is a preview; run snapshots should be compared via the production API.")}><GitCompare size={14}/> Compare selected ({selectedRuns.length})</button>}>
           <div className="compare-grid">{alphas.slice(0,4).map(a=><label className={`compare-card ${selectedRuns.includes(a.id)?"checked":""}`} key={a.id}><input type="checkbox" checked={selectedRuns.includes(a.id)} onChange={()=>toggleRun(a.id)}/><div><strong>{a.name}</strong><small className="mono">{a.id} · {a.universe}</small></div><span className="compare-sharpe">{fmtNum(a.sharpe)} <small>Sharpe</small></span></label>)}</div>
