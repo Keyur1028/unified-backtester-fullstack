@@ -18,6 +18,7 @@ from similarity_retrieval import idea_tokens, retrieve_similar, store_idea_respo
 from idea_similarity_safety import has_directional_conflict
 from retrieval_context import format_retrieval_context
 from candidate_payload import compact_generated_candidate
+from alpha_generation_service import build_generation_prompt, generate_candidates
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
@@ -243,35 +244,11 @@ def generate_alpha_ideas():
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return jsonify({"error": {"type": "ConfigurationError", "message": "Gemini is not configured. Add GEMINI_API_KEY to backend/.env and restart the backend."}}), 503
-    schema = {"ideas": [{"name": "short readable name", "hypothesis": "testable market hypothesis", "expression": "engine expression", "rationale": "why the signal could work", "expected_behavior": "what a high/low score means", "risks": ["research caveat"]}]}
-    prompt = (
-        "You are a quantitative research assistant for a daily-bar alpha backtester. "
-        "Convert the user's strategy into 3 materially different, testable alpha candidates. "
-        "Return ONLY valid JSON matching this shape: " + json.dumps(schema) +
-        "\nUser strategy: " + idea +
-        "\nSupported fields (only these): " + json.dumps(sorted(fields)) +
-        "\nSupported operators (only these): " + json.dumps(sorted(operators)) +
-        "\nRules: use only listed fields/operators; do not invent data, fundamentals, sentiment, intraday data, or undocumented functions. "
-        "Expressions must be simple expression-language strings, not Python code. Prefer cross-sectional ranking where appropriate. "
-        "Use positive integer lookback windows. Do not promise profitability. If the idea needs unavailable data or intraday timing, "
-        "state that limitation in risks and propose the closest honest daily OHLCV-only proxy. Generate distinct hypotheses, not merely different window lengths."
-    )
-    if similar_ideas:
-        examples = format_retrieval_context(similar_ideas)
-        if examples != "[]":
-            prompt += (
-                "\\nRetrieved prior candidates (compact lexical matches; examples only, not proof of validity): "
-                + examples
-                + "\\nUse these only as research context. Do not copy an expression unless it fits the current idea; "
-                  "produce distinct candidates and still obey the active field/operator registry."
-            )
+    prompt = build_generation_prompt(idea, fields, operators, similar_ideas)
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=model, contents=prompt,
-            config={"response_mime_type": "application/json", "temperature": 0.35})
-        raw = json.loads(response.text or "{}")
+        response_text = generate_candidates(api_key, model, prompt)
+        raw = json.loads(response_text)
+
         ideas = raw.get("ideas", []) if isinstance(raw, dict) else []
         accepted, rejected = [], []
         for item in ideas[:5]:
