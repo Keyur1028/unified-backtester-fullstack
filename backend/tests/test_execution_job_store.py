@@ -1,0 +1,103 @@
+"""Offline tests for persisted execution-job lifecycle transitions."""
+import os
+import sys
+import tempfile
+import unittest
+
+BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
+from execution_job_contract import ExecutionJobStatus, RunConfiguration  # noqa: E402
+from execution_job_store import (  # noqa: E402
+    ExecutionJobNotFoundError,
+    InvalidJobTransitionError,
+    SQLiteExecutionJobStore,
+)
+
+
+class SQLiteExecutionJobStoreTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.database_path = os.path.join(self.temp_dir.name, "jobs.sqlite3")
+        self.store = SQLiteExecutionJobStore(self.database_path)
+        self.configuration = RunConfiguration.from_payload({
+            "expression": "rank(close)",
+            "universe": "NIFTY50",
+        })
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_create_and_read_job_persists_snapshot_and_fingerprint(self):
+        created = self.store.create_job(self.configuration, job_id="job-1")
+        self.assertEqual(created["job_id"], "job-1")
+        self.assertEqual(created["status"], "queued")
+        self.assertEqual(created["config"], self.configuration.to_dict())
+        self.assertEqual(created["config_fingerprint"], self.configuration.fingerprint)
+        self.assertIsNone(created["result"])
+        self.assertIsNone(created["error"])
+
+        # A new repository instance proves the record is stored on disk.
+        reopened = SQLiteExecutionJobStore(self.database_path)
+        self.assertEqual(reopened.get_job("job-1"), created)
+
+    def test_successful_lifecycle_persists_result(self):
+        self.store.create_job(self.configuration, job_id="job-2")
+        running = self.store.transition("job-2", ExecutionJobStatus.RUNNING)
+        self.assertEqual(running["status"], "running")
+        succeeded = self.store.transition(
+            "job-2", ExecutionJobStatus.SUCCEEDED,
+            result={"summary": {"sharpe": 1.2}},
+        )
+        self.assertEqual(succeeded["status"], "succeeded")
+        self.assertEqual(succeeded["result"], {"summary": {"sharpe": 1.2}})
+        self.assertIsNone(succeeded["error"])
+
+    def test_failure_lifecycle_persists_error(self):
+        self.store.create_job(self.configuration, job_id="job-3")
+        self.store.transition("job-3", "running")
+        failed = self.store.transition(
+            "job-3", "failed", error={"type": "EngineError", "message": "failed"}
+        )
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["error"]["type"], "EngineError")
+
+    def test_queued_job_can_be_cancelled(self):
+        self.store.create_job(self.configuration, job_id="job-4")
+        cancelled = self.store.transition("job-4", "cancelled")
+        self.assertEqual(cancelled["status"], "cancelled")
+
+    def test_terminal_state_cannot_be_changed(self):
+        self.store.create_job(self.configuration, job_id="job-5")
+        self.store.transition("job-5", "cancelled")
+        with self.assertRaises(InvalidJobTransitionError):
+            self.store.transition("job-5", "running")
+
+    def test_queued_job_cannot_skip_running_to_succeed(self):
+        self.store.create_job(self.configuration, job_id="job-6")
+        with self.assertRaises(InvalidJobTransitionError):
+            self.store.transition(
+                "job-6", "succeeded", result={"summary": {}}
+            )
+
+    def test_terminal_payloads_must_be_json_objects(self):
+        self.store.create_job(self.configuration, job_id="job-7")
+        self.store.transition("job-7", "running")
+        with self.assertRaisesRegex(TypeError, "result must be a JSON object"):
+            self.store.transition("job-7", "succeeded", result=["not", "object"])
+        with self.assertRaisesRegex(ValueError, "JSON-safe"):
+            self.store.transition("job-7", "failed", error={"value": float("nan")})
+
+    def test_unknown_job_raises_not_found(self):
+        with self.assertRaises(ExecutionJobNotFoundError):
+            self.store.get_job("missing")
+
+    def test_returned_configuration_is_detached(self):
+        created = self.store.create_job(self.configuration, job_id="job-8")
+        created["config"]["universe"] = "TOP500"
+        self.assertEqual(self.store.get_job("job-8")["config"]["universe"], "NIFTY50")
+
+
+if __name__ == "__main__":
+    unittest.main()
