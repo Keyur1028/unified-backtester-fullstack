@@ -162,3 +162,15 @@ hf download sentence-transformers/all-MiniLM-L6-v2 --local-dir /models/all-MiniL
 Set `ALPHA_EMBEDDING_MODEL=/models/all-MiniLM-L6-v2` and restart the backend. The same local embedding model powers the SQLite vector store for prior candidate sets and the active data/operator catalog. If no usable local model is configured, the store uses deterministic hashed lexical vectors instead. No external embedding API is called.
 
 These models run locally on CPU by default and consume additional memory/latency. Enable them only where the deployment has enough resources. The API key for Gemini remains a backend-only environment secret and is not used by the local summarizer or embedding store.
+
+
+## Model-call reliability for Idea → Expression
+
+Remote alpha generation now goes through `backend/generation_gateway.py`, which enforces a bounded request timeout, caps provider response size, and retries only likely transient network/rate-limit/server failures once. It does not log prompts, credentials, or response bodies. A retry after a timeout can still incur a provider charge if the provider accepted the original request.
+
+Optional backend environment settings:
+
+- `ALPHA_MODEL_TIMEOUT_MS`: request timeout in milliseconds (default `30000`; accepted range 1–120000).
+- `ALPHA_MODEL_RETRIES`: currently bounded to at most one retry; default is `1`.
+
+This is one production-hardening layer, not a claim that the whole Idea → Expression flow is production complete. The pipeline still requires integration tests against the real expression engine and data adapter, operational rate limiting/authentication for public deployments, and parity review against the production notebook once that notebook is available.
