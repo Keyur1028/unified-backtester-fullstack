@@ -92,10 +92,19 @@ class SQLiteExecutionJobStore:
                     config_fingerprint TEXT NOT NULL,
                     result_json TEXT,
                     error_json TEXT,
+                    owner_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
                 """
+            )
+            # Migrate existing local databases without discarding saved jobs.
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(execution_jobs)")}
+            if "owner_id" not in columns:
+                connection.execute("ALTER TABLE execution_jobs ADD COLUMN owner_id TEXT")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_execution_jobs_owner_created_at "
+                "ON execution_jobs(owner_id, created_at DESC)"
             )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_execution_jobs_created_at "
@@ -103,7 +112,8 @@ class SQLiteExecutionJobStore:
             )
 
     def create_job(
-        self, configuration: RunConfiguration, job_id: str | None = None
+        self, configuration: RunConfiguration, job_id: str | None = None,
+        owner_id: str | None = None
     ) -> dict[str, Any]:
         """Persist a queued job and return its detached public representation."""
         if not isinstance(configuration, RunConfiguration):
@@ -115,13 +125,13 @@ class SQLiteExecutionJobStore:
                 """
                 INSERT INTO execution_jobs (
                     job_id, status, config_json, config_fingerprint,
-                    result_json, error_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)
+                    result_json, error_json, owner_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?)
                 """,
                 (
                     identifier, ExecutionJobStatus.QUEUED.value,
                     configuration.canonical_json, configuration.fingerprint,
-                    timestamp, timestamp,
+                    owner_id, timestamp, timestamp,
                 ),
             )
             row = connection.execute(
@@ -129,12 +139,18 @@ class SQLiteExecutionJobStore:
             ).fetchone()
         return self._decode(row)
 
-    def get_job(self, job_id: str) -> dict[str, Any]:
-        """Return a detached job record or raise if the identifier is unknown."""
+    def get_job(self, job_id: str, owner_id: str | None = None) -> dict[str, Any]:
+        """Return a job; when owner_id is supplied, hide other users' records."""
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT * FROM execution_jobs WHERE job_id = ?", (job_id,)
-            ).fetchone()
+            if owner_id is None:
+                row = connection.execute(
+                    "SELECT * FROM execution_jobs WHERE job_id = ?", (job_id,)
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT * FROM execution_jobs WHERE job_id = ? AND owner_id = ?",
+                    (job_id, owner_id),
+                ).fetchone()
         if row is None:
             raise ExecutionJobNotFoundError(f"Execution job '{job_id}' was not found.")
         return self._decode(row)
@@ -153,17 +169,24 @@ class SQLiteExecutionJobStore:
             ).fetchall()
         return [self._decode(row) for row in rows]
 
-    def list_jobs(self, limit: int = 20) -> list[dict[str, Any]]:
+    def list_jobs(self, limit: int = 20, owner_id: str | None = None) -> list[dict[str, Any]]:
         """Return the newest job records, with a bounded page size."""
         if isinstance(limit, bool) or not isinstance(limit, int):
             raise TypeError("limit must be an integer.")
         if not 1 <= limit <= 100:
             raise ValueError("limit must be between 1 and 100.")
         with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT * FROM execution_jobs ORDER BY created_at DESC, rowid DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            if owner_id is None:
+                rows = connection.execute(
+                    "SELECT * FROM execution_jobs ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT * FROM execution_jobs WHERE owner_id = ? "
+                    "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                    (owner_id, limit),
+                ).fetchall()
         return [self._decode(row) for row in rows]
 
     def heartbeat_job(self, job_id: str) -> bool:
