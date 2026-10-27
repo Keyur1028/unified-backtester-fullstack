@@ -25,6 +25,7 @@ from catalog_retrieval import retrieve_catalog_context
 from candidate_runtime_validation import validate_candidate_runtime
 from research_context import validate_research_context
 from alpha_generation_service import build_generation_prompt, generate_candidates
+from model_response_contract import ModelResponseContractError, parse_idea_candidates
 from backtest_service import run_backtest
 from execution_job_contract import ExecutionJobStatus, RunConfiguration
 from execution_job_store import ExecutionJobNotFoundError, InvalidJobTransitionError
@@ -378,10 +379,9 @@ def generate_alpha_ideas():
     prompt = build_generation_prompt(idea, fields, operators, similar_ideas, research_context=research_context, catalog_context=catalog_context)
     try:
         response_text = generate_candidates(api_key, model, prompt)
-        raw = json.loads(response_text)
-
-        ideas = raw.get("ideas", []) if isinstance(raw, dict) else []
+        ideas = parse_idea_candidates(response_text)
         accepted, rejected = [], []
+        seen_expressions: set[str] = set()
         for item in ideas[:5]:
             candidate, compact_error = compact_generated_candidate(item)
             if candidate is None:
@@ -391,7 +391,10 @@ def generate_alpha_ideas():
                 })
                 continue
             expr = candidate["expression"]
+            expression_key = " ".join(expr.split())
             try:
+                if expression_key in seen_expressions:
+                    raise ValueError("Duplicate expression; candidates must be distinct.")
                 valid, reason = validate_expression(expr, fields, operators)
                 if not valid:
                     raise ValueError(reason or "Expression validation failed")
@@ -410,6 +413,7 @@ def generate_alpha_ideas():
                     candidate, research_context, set(fields), set(operators)
                 )
                 accepted.append(candidate)
+                seen_expressions.add(expression_key)
             except Exception as exc:
                 rejected.append({"expression": expr, "reason": str(exc)[:250]})
         if not accepted:
@@ -446,6 +450,9 @@ def generate_alpha_ideas():
         return jsonify(result)
     except ImportError:
         return jsonify({"error": {"type": "DependencyError", "message": "Install backend dependencies with: pip install -r requirements.txt (includes google-genai)."}}), 503
+    except ModelResponseContractError as exc:
+        app.logger.warning("Gemini response violated the candidate JSON contract: %s", exc)
+        return jsonify({"error": {"type": "ModelResponseContractError", "message": "The model returned an invalid candidate response. Retry with a clearer research idea.", "details": str(exc)[:200]}}), 502
     except Exception:
         app.logger.exception("Gemini alpha generation failed")
         return jsonify({"error": {"type": "GeminiError", "message": "Gemini generation failed. Check the API key, model availability, quota, and backend logs."}}), 502
