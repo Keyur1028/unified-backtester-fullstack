@@ -29,7 +29,10 @@ class IdeaExpressionPipelineIntegrationTests(unittest.TestCase):
                     "native_ohlcv": ["close", "volume"],
                     "engineered": ["momentum_20"],
                     "external": "",
-                }
+                },
+                "universes": {"NIFTY50": "static"},
+                "portfolio_types": ["LONG_ONLY", "LONG_SHORT"],
+                "weighting_schemes": ["EQUAL_WEIGHT", "SIGNAL_WEIGHTED"],
             },
         )
         self.interface_patch.start()
