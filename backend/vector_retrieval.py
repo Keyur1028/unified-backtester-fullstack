@@ -53,7 +53,7 @@ def embed_text(text: str) -> tuple[list[float], str]:
         except Exception:
             pass
 
-    tokens = idea_tokens(text)
+    tokens = idea_tokens(str(text).replace("_", " "))
     vector = [0.0] * VECTOR_DIMENSIONS
     features = list(tokens)
     features.extend("bi:" + tokens[i] + "_" + tokens[i + 1] for i in range(len(tokens) - 1))
