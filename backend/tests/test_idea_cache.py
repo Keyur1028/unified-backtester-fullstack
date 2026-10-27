@@ -2,6 +2,7 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from idea_cache import (
@@ -23,6 +24,12 @@ class IdeaCacheTests(unittest.TestCase):
         self.assertEqual(base, make_cache_key(" MOMENTUM  IDEA ", ["volume", "close"], ["rank"], "model-a"))
         self.assertNotEqual(base, make_cache_key("momentum idea", ["close"], ["rank"], "model-a"))
         self.assertNotEqual(base, make_cache_key("momentum idea", ["close", "volume"], ["rank"], "model-b"))
+
+    def test_cache_key_changes_when_prompt_contract_version_changes(self):
+        base = make_cache_key("momentum idea", ["close"], ["rank"], "model-a")
+        with patch("idea_cache.PROMPT_VERSION", 3):
+            changed = make_cache_key("momentum idea", ["close"], ["rank"], "model-a")
+        self.assertNotEqual(base, changed)
 
     def test_response_persists_and_round_trips(self):
         with tempfile.TemporaryDirectory() as directory:
