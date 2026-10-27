@@ -66,7 +66,8 @@ class SimilaritySafetyTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.get_json()["error"]["type"], "ConfigurationError")
 
-    def test_same_direction_near_duplicate_can_still_be_reused(self):
+    @patch.object(api_app, "validate_candidate_runtime", return_value=(True, None))
+    def test_same_direction_near_duplicate_can_still_be_reused(self, _mock_runtime):
         interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
         idea = "Find bullish momentum using price trend and recent trading volume"
         prior_ideas = [{

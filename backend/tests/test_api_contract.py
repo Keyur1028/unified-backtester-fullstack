@@ -145,7 +145,8 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(payload["retrieval"]["similarity"], 0.96)
         self.assertIn("lexical", payload["note"])
 
-    def test_generate_alpha_cache_hit_does_not_require_gemini_key(self):
+    @patch.object(api_app, "validate_candidate_runtime", return_value=(True, None))
+    def test_generate_alpha_cache_hit_does_not_require_gemini_key(self, _mock_runtime):
         interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
         idea = "Capture persistent momentum with a volatility penalty."
         model = "test-model"
