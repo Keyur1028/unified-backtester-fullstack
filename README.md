@@ -8,7 +8,7 @@ This repository connects the React + Vite frontend to a Python Flask API that wr
 - `backend/app.py` — HTTP API, request validation, result adaptation, alpha generation, and execution-job routes.
 - `backend/alpha_engine.py` — notebook-derived expression engine, feature/operator registry, backtest runner, and interface metadata.
 - `backend/backtest_service.py` — service boundary around the authoritative backtest execution call.
-- `backend/execution_job_contract.py` and `backend/execution_job_store.py` — execution configuration/status contract and local SQLite persistence.
+- `backend/execution_job_contract.py`, `backend/execution_job_store.py`, `backend/postgres_execution_job_store.py`, and `backend/execution_job_store_factory.py` — execution configuration/status contract and selectable SQLite/PostgreSQL persistence.
 - `backend/storage/` — local runtime state, including the SQLite execution-job database and notebook experiment log.
 - `backend/data_cache/`, `backend/universes/`, `backend/external_scores/` — data/cache paths expected by the engine.
 
@@ -56,7 +56,7 @@ Open `http://localhost:5173`. Vite forwards `/api/*` to the Flask API on port 30
 
 The execution-job API persists a job ID, status, run configuration/fingerprint, timestamps, and either a result or error. Status values include `queued`, `running`, `succeeded`, and `failed` (the contract also defines `cancelled`). The current endpoint executes the backtest synchronously inside the HTTP request; the lifecycle record is persisted, but this is **not yet a background queue**.
 
-The frontend's Runs & History page reads saved jobs and can inspect the result stored on a selected successful job. These records are stored in a local SQLite database by default at `backend/storage/execution_jobs.sqlite3`; override the path with `EXECUTION_JOB_DB`.
+The frontend's Runs & History page reads saved jobs and can inspect the result stored on a selected successful job. These records use local SQLite by default at `backend/storage/execution_jobs.sqlite3`; override the path with `EXECUTION_JOB_DB`. To opt into shared PostgreSQL storage, set `EXECUTION_JOB_DATABASE_URL` to a PostgreSQL connection URL. When this variable is set, PostgreSQL is selected instead of SQLite; connection/schema errors fail startup rather than silently falling back. The database user needs permission to create the `execution_jobs` table and its index on first startup.
 
 Example legacy backtest request:
 
@@ -81,7 +81,7 @@ curl -X POST http://127.0.0.1:3000/api/backtest \
 ## Important limitations before multi-user deployment
 
 - **Synchronous execution:** long backtests keep the HTTP request open and can occupy a web worker. A background queue/worker, polling strategy, timeouts, quotas, cancellation semantics, and bounded concurrency still need design and implementation.
-- **Local persistence:** execution jobs use SQLite and the notebook experiment tracker uses a local JSON file. These are not shared multi-instance storage and do not provide tenant ownership or concurrent-writer guarantees for the experiment tracker.
+- **Persistence:** execution jobs can use PostgreSQL when `EXECUTION_JOB_DATABASE_URL` is configured, or local SQLite by default. The notebook experiment tracker still uses a local JSON file, so it is not shared across instances and does not provide tenant ownership or concurrent-writer guarantees. PostgreSQL job storage alone does not make the full application multi-instance safe.
 - **Authentication and isolation:** authentication, per-user authorization, workspace isolation, managed secrets, request rate limiting, and an audit/retention policy are not implemented. Do not expose this API as a multi-user service until access controls and shared persistence are implemented.
 - **Data availability:** regression/synthetic tests are not run automatically at API startup. A healthy HTTP response does not guarantee that live data is available for every universe/date range.
 - **Preview behavior:** successful API runs display actual engine output. When the API is unavailable or a run fails, the frontend can show its labelled illustrative preview.
