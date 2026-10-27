@@ -188,3 +188,8 @@ A synthetic runtime probe is only a compatibility smoke test. It is not a substi
 The expensive `POST /api/generate-alpha` route has a persistent SQLite fixed-window rate limit (default: 30 requests per client IP per 60 seconds). Configure `ALPHA_GENERATION_RATE_LIMIT` and `ALPHA_GENERATION_RATE_WINDOW_SECONDS` to change the budget. Requests over the budget return HTTP 429 and a `Retry-After` header. If the limiter storage is unavailable, generation fails closed with HTTP 503 rather than proceeding to a paid provider call.
 
 The limiter hashes client identifiers before storing them and does not trust `X-Forwarded-For` by default. It is intended for a single instance or shared SQLite volume; horizontally scaled deployments should use a shared atomic rate-limit store and explicitly configure trusted proxy handling. This limit is an abuse/cost guard, not authentication or per-user quota enforcement.
+
+
+### Model prompt and output budgets
+
+The Idea → Expression model gateway rejects prompts longer than 80,000 characters and caps generated output at 4,096 tokens by default. Set `ALPHA_MODEL_MAX_OUTPUT_TOKENS` to a value from 128 to 8,192 to tune the output budget; values outside the supported range fall back to the default. The output cap bounds generation length but is not a hard monetary budget: provider pricing, input-token size, retries, and provider-side billing behavior still matter.
