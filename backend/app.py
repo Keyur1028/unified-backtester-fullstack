@@ -283,14 +283,15 @@ def generate_alpha_ideas():
     catalog_id = catalog_fingerprint(fields, operators)
     retrieval_summary = summarize_for_retrieval(research_brief)
     retrieval_brief = retrieval_summary["summary"]
+    vector_path = STORE / "idea_vectors.sqlite3"
     catalog_context = retrieve_catalog_context(
-        retrieval_brief, capability_interface, fields, operators, limit_per_kind=8
+        retrieval_brief, capability_interface, fields, operators,
+        limit_per_kind=8, vector_db_path=str(vector_path),
     )
     retrieval_path = STORE / "idea_retrieval_index.json"
     lexical_matches = retrieve_similar(
         retrieval_path, retrieval_brief, model, catalog_id, limit=3, min_similarity=0.25
     )
-    vector_path = STORE / "idea_vectors.sqlite3"
     vector_matches = retrieve_similar_vectors(
         vector_path, retrieval_brief, model, catalog_id,
         limit=3, min_similarity=0.25, safety_text=research_brief,
