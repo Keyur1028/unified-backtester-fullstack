@@ -26,7 +26,7 @@ def _load_local_model(model_name: str):
 
 def summarize_for_retrieval(text: str, max_chars: int = 2400) -> dict[str, str]:
     """Return a compact retrieval query; failures safely fall back to normalized text."""
-    normalized = re.sub(r"\\s+", " ", str(text)).strip()[:max_chars]
+    normalized = re.sub(r"\s+", " ", str(text)).strip()[:max_chars]
     if not normalized:
         return {"summary": "", "mode": "deterministic-normalization"}
     model_name = os.getenv("LOCAL_SUMMARIZER_MODEL", "").strip()
