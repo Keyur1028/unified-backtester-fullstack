@@ -91,6 +91,12 @@ class IdeaToBacktestFlowTests(unittest.TestCase):
                 "rationale": "Rank the current close across the available universe.",
                 "expected_behavior": "Higher price ranks receive higher signal scores.",
                 "risks": ["Price level is not a scale-neutral fundamental signal."],
+                "required_fields": ["close"],
+                "entry_rules": ["Enter high-ranked names."],
+                "exit_rules": ["Rebalance after the configured holding period."],
+                "execution_rules": ["Use daily bars with the configured execution lag and price."],
+                "clarifying_questions": [],
+                "assumptions": ["Synthetic daily OHLCV data is available."],
             }]
         })
 
@@ -98,11 +104,26 @@ class IdeaToBacktestFlowTests(unittest.TestCase):
             with patch.object(api_app.engine.TRACKER, "save"):
                 idea_response = self.client.post(
                     "/api/generate-alpha",
-                    json={"idea": "Rank stocks by their cross-sectional price strength."},
+                    json={
+                        "idea": "Rank stocks by their cross-sectional price strength.",
+                        "cluster": "D1",
+                        "universe": "NIFTY50",
+                        "strategy_context": {
+                            "holding_period_bars": 3,
+                            "execution_lag_bars": 1,
+                            "execution_price": "close",
+                            "portfolio": "LONG_ONLY",
+                            "weighting": "EQUAL_WEIGHT",
+                        },
+                    },
                 )
                 self.assertEqual(idea_response.status_code, 200, idea_response.get_json())
-                expression = idea_response.get_json()["ideas"][0]["expression"]
+                candidate = idea_response.get_json()["ideas"][0]
+                expression = candidate["expression"]
+                handoff = candidate["handoff"]
                 self.assertEqual(expression, "rank(close)")
+                self.assertEqual(handoff["assistant_status"], "ready_for_notebook2")
+                self.assertFalse(handoff["backtest_executed"])
 
                 def run_with_synthetic_market_data(payload):
                     return api_app.engine.run_backtest_api(
@@ -115,19 +136,18 @@ class IdeaToBacktestFlowTests(unittest.TestCase):
 
                 with patch.object(api_app, "run_backtest", side_effect=run_with_synthetic_market_data):
                     queued_response = self.client.post(
-                        "/api/execution-jobs",
+                        "/api/execution-jobs/from-handoff",
                         json={
-                            "expression": expression,
-                            "universe": "NIFTY50",
+                            "handoff": handoff,
                             "start": "2020-07-01",
                             "end": "2021-06-30",
-                            "holding_period": 3,
-                            "execution_lag_bars": 1,
-                            "execution_price": "close",
                         },
                     )
                     self.assertEqual(queued_response.status_code, 202, queued_response.get_json())
                     queued = queued_response.get_json()
+                    self.assertEqual(queued["config"]["holding_period"], 3)
+                    self.assertEqual(queued["config"]["portfolio"], "LONG_ONLY")
+                    self.assertEqual(queued["config"]["weighting"], "EQUAL_WEIGHT")
                     completed = api_app.execute_execution_job(queued["job_id"])
 
         model.assert_called_once()
