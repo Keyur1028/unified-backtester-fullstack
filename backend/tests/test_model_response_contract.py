@@ -34,7 +34,7 @@ class ModelResponseContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ModelResponseContractError, "empty"):
             parse_idea_candidates(" ")
         with self.assertRaisesRegex(ModelResponseContractError, "size limit"):
-            parse_idea_candidates(" " * 128001)
+            parse_idea_candidates("x" * 128001)
 
 
 if __name__ == "__main__":
