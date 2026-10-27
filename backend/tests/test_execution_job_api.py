@@ -1,0 +1,94 @@
+"""Offline API tests for persisted execution-job endpoints."""
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
+import app as api_app  # noqa: E402
+from execution_job_store import SQLiteExecutionJobStore  # noqa: E402
+
+
+class ExecutionJobApiTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.store = SQLiteExecutionJobStore(
+            Path(self.temp_dir.name) / "execution-jobs.sqlite3"
+        )
+        self.store_patch = patch.object(api_app, "JOB_STORE", self.store)
+        self.store_patch.start()
+        api_app.app.config.update(TESTING=True)
+        self.client = api_app.app.test_client()
+
+    def tearDown(self):
+        self.store_patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_successful_execution_persists_result_and_can_be_fetched(self):
+        envelope = {
+            "status": "success",
+            "experiment_id": "exp-test",
+            "result": {
+                "expression": "rank(close)",
+                "net_returns": {},
+                "gross_returns": {},
+                "ic_series": {},
+                "drawdown_series": {},
+                "turnover_series": {},
+                "cum_net_returns": {},
+                "cum_gross_returns": {},
+            },
+        }
+        with patch.object(api_app, "run_backtest", return_value=envelope):
+            with patch.object(api_app.engine.TRACKER, "save"):
+                response = self.client.post(
+                    "/api/execution-jobs",
+                    json={"expression": "rank(close)", "universe": "NIFTY50"},
+                )
+        self.assertEqual(response.status_code, 200)
+        job = response.get_json()
+        self.assertEqual(job["status"], "succeeded")
+        self.assertEqual(job["config"]["expression"], "rank(close)")
+        self.assertEqual(job["result"]["experiment_id"], "exp-test")
+        self.assertIsNone(job["error"])
+
+        fetched = self.client.get(f"/api/execution-jobs/{job['job_id']}")
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(fetched.get_json(), job)
+
+    def test_engine_error_is_persisted_as_failed_job(self):
+        envelope = {
+            "status": "error",
+            "experiment_id": "exp-invalid",
+            "error": {"type": "ValidationError", "message": "Unsupported expression"},
+            "config": {"expression": "unsupported(close)"},
+        }
+        with patch.object(api_app, "run_backtest", return_value=envelope):
+            with patch.object(api_app.engine.TRACKER, "save"):
+                response = self.client.post(
+                    "/api/execution-jobs", json={"expression": "unsupported(close)"}
+                )
+        self.assertEqual(response.status_code, 200)
+        job = response.get_json()
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(job["error"]["type"], "ValidationError")
+        self.assertIsNone(job["result"])
+
+    def test_invalid_request_is_rejected_before_job_creation(self):
+        response = self.client.post("/api/execution-jobs", json=["not", "an", "object"])
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
+
+    def test_missing_job_returns_not_found(self):
+        response = self.client.get("/api/execution-jobs/not-a-job")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.get_json()["error"]["type"], "NotFound")
+
+
+if __name__ == "__main__":
+    unittest.main()

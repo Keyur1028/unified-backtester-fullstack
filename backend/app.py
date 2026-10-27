@@ -20,11 +20,18 @@ from retrieval_context import format_retrieval_context
 from candidate_payload import compact_generated_candidate
 from alpha_generation_service import build_generation_prompt, generate_candidates
 from backtest_service import run_backtest
+from execution_job_contract import ExecutionJobStatus, RunConfiguration
+from execution_job_store import (
+    ExecutionJobNotFoundError,
+    SQLiteExecutionJobStore,
+)
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
 STORE.mkdir(parents=True, exist_ok=True)
 TRACKER_FILE = STORE / "experiment_log.json"
+JOB_DATABASE = os.getenv("EXECUTION_JOB_DB", str(STORE / "execution_jobs.sqlite3"))
+JOB_STORE = SQLiteExecutionJobStore(JOB_DATABASE)
 try:
     if TRACKER_FILE.exists():
         engine.TRACKER.load(str(TRACKER_FILE), replace=True)
@@ -353,6 +360,73 @@ def backtest():
         return jsonify({"experiment_id":envelope.get("experiment_id"),"status":"error",
                         "error":err,"config":envelope.get("config")}), (400 if err.get("type")=="ValidationError" else 422)
     return jsonify(adapt_result(envelope,elapsed))
+
+@app.post("/api/execution-jobs")
+def create_execution_job():
+    """Persist a run record and execute it synchronously through the authoritative engine.
+
+    This endpoint records lifecycle state but is not a background queue: the request
+    remains open until the backtest completes. The legacy /api/backtest contract is
+    intentionally unchanged.
+    """
+    if not request.is_json:
+        return jsonify({"error": {"type": "ValidationError", "message": "Content-Type must be application/json"}}), 415
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": {"type": "ValidationError", "message": "Request body must be a JSON object"}}), 400
+
+    job = JOB_STORE.create_job(RunConfiguration.from_payload(payload))
+    JOB_STORE.transition(job["job_id"], ExecutionJobStatus.RUNNING)
+    started = time.perf_counter()
+    try:
+        envelope = run_backtest(payload)
+        elapsed = time.perf_counter() - started
+        try:
+            engine.TRACKER.save(str(TRACKER_FILE))
+        except Exception as exc:
+            app.logger.warning("Tracker persistence failed: %s", exc)
+
+        if envelope.get("status") != "success":
+            error = envelope.get("error") or {
+                "type": "ExecutionError", "message": "Backtest execution failed."
+            }
+            completed = JOB_STORE.transition(
+                job["job_id"], ExecutionJobStatus.FAILED, error=error
+            )
+            return jsonify(completed), 200
+
+        result = adapt_result(envelope, elapsed)
+        completed = JOB_STORE.transition(
+            job["job_id"], ExecutionJobStatus.SUCCEEDED, result=result
+        )
+        return jsonify(completed), 200
+    except Exception as exc:
+        app.logger.exception("Execution job failed")
+        try:
+            JOB_STORE.transition(
+                job["job_id"],
+                ExecutionJobStatus.FAILED,
+                error={"type": "InternalError", "message": "Unexpected backtest execution failure."},
+            )
+        except Exception:
+            app.logger.exception("Could not persist failed execution-job status")
+        return jsonify({
+            "job_id": job["job_id"],
+            "status": "failed",
+            "error": {"type": "InternalError", "message": "Unexpected backtest execution failure."},
+        }), 500
+
+
+@app.get("/api/execution-jobs/<job_id>")
+def get_execution_job(job_id):
+    """Fetch a persisted execution-job record by identifier."""
+    try:
+        return jsonify(JOB_STORE.get_job(job_id)), 200
+    except ExecutionJobNotFoundError:
+        return jsonify({
+            "error": {"type": "NotFound", "message": "Execution job was not found."}
+        }), 404
+
 
 @app.errorhandler(413)
 def too_large(_err):
