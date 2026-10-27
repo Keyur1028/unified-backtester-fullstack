@@ -50,6 +50,8 @@ class AlphaGenerationServiceTests(unittest.TestCase):
             },
         )
         self.assertIn("Structured research context", prompt)
+        self.assertIn("\nStructured research context", prompt)
+        self.assertNotIn("\\\\nStructured research context", prompt)
         self.assertIn("Close measures the end-of-day price.", prompt)
         self.assertIn("A rolling mean smooths noise.", prompt)
         self.assertIn('"universe": "NIFTY100"', prompt)
