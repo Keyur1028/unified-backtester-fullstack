@@ -14,7 +14,7 @@ import local_summarizer  # noqa: E402
 class LocalSummarizerTests(unittest.TestCase):
     def test_deterministic_fallback_normalizes_whitespace_without_network(self):
         with patch.dict(os.environ, {"LOCAL_SUMMARIZER_MODEL": ""}):
-            result = local_summarizer.summarize_for_retrieval("  rank(close)\\n\\n momentum  ")
+            result = local_summarizer.summarize_for_retrieval("  rank(close)\n\n momentum  ")
         self.assertEqual(result["mode"], "deterministic-normalization")
         self.assertEqual(result["summary"], "rank(close) momentum")
 
