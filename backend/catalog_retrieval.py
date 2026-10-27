@@ -13,7 +13,7 @@ _STOPWORDS = {"a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "fr
 
 
 def _tokens(text: str) -> set[str]:
-    return {token.casefold() for token in _TOKEN_RE.findall(str(text))
+    return {token.casefold() for token in _TOKEN_RE.findall(str(text).replace("_", " "))
             if token.casefold() not in _STOPWORDS}
 
 
