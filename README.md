@@ -138,3 +138,27 @@ python backend/refresh_nifty100.py
 ```
 
 This writes `backend/universes/nifty100.csv` and a source/checksum record in `nifty100.metadata.json`. The file is a **current-membership snapshot**, not a point-in-time historical universe; historical backtests using it carry survivorship/reconstitution bias unless you provide historical constituents separately. The script validates exactly 100 unique symbols and fails without replacing the existing file if the source response is invalid.
+
+## Optional local retrieval models
+
+Idea generation works without extra model downloads. By default, retrieval uses deterministic text normalization and hashed local vectors. For stronger local summarization and semantic embeddings, install the optional dependencies and pre-cache compatible models yourself. The backend never downloads models at request time.
+
+### Local summarizer
+
+```bash
+python -m pip install transformers torch
+hf download google/flan-t5-small --local-dir /models/flan-t5-small
+```
+
+Set `LOCAL_SUMMARIZER_MODEL=/models/flan-t5-small` in the backend environment and restart the backend. The model is used only to form a retrieval query; the full research brief is still passed to the generation prompt and exact-cache key. If the path or dependency is unavailable, the backend falls back to deterministic normalization.
+
+### Local semantic embeddings
+
+```bash
+python -m pip install sentence-transformers
+hf download sentence-transformers/all-MiniLM-L6-v2 --local-dir /models/all-MiniLM-L6-v2
+```
+
+Set `ALPHA_EMBEDDING_MODEL=/models/all-MiniLM-L6-v2` and restart the backend. The same local embedding model powers the SQLite vector store for prior candidate sets and the active data/operator catalog. If no usable local model is configured, the store uses deterministic hashed lexical vectors instead. No external embedding API is called.
+
+These models run locally on CPU by default and consume additional memory/latency. Enable them only where the deployment has enough resources. The API key for Gemini remains a backend-only environment secret and is not used by the local summarizer or embedding store.
