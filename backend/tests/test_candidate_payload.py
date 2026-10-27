@@ -3,7 +3,9 @@ import json
 import os
 import sys
 import types
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -68,15 +70,17 @@ class CandidatePayloadTests(unittest.TestCase):
         google_module.genai = response_module
         interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
 
-        with patch.object(api_app.engine, "describe_interface", return_value=interface):
-            with patch.object(api_app.engine, "OPERATORS", {"rank": object()}):
-                with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
-                    with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key", "GEMINI_MODEL": "test-model"}):
-                        with patch.dict(sys.modules, {"google": google_module, "google.genai": response_module}):
-                            response = api_app.app.test_client().post(
-                                "/api/generate-alpha",
-                                json={"idea": "Capture a persistent price trend with a cross-sectional rank."},
-                            )
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(api_app, "STORE", Path(directory)):
+                with patch.object(api_app.engine, "describe_interface", return_value=interface):
+                    with patch.object(api_app.engine, "OPERATORS", {"rank": object()}):
+                        with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
+                            with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key", "GEMINI_MODEL": "test-model"}):
+                                with patch.dict(sys.modules, {"google": google_module, "google.genai": response_module}):
+                                    response = api_app.app.test_client().post(
+                                        "/api/generate-alpha",
+                                        json={"idea": "Capture a persistent price trend with a cross-sectional rank."},
+                                    )
 
         self.assertEqual(response.status_code, 200, response.get_json())
         candidate = response.get_json()["ideas"][0]
