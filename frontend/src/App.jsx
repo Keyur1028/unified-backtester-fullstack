@@ -11,7 +11,7 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line,
   LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
-import { getExamples, getHealth, getMeta, getExperiments, getExecutionJobs, getExecutionJob, cancelExecutionJob, submitExecutionJob, runBacktest, generateAlphaIdeas } from "./api";
+import { getExamples, getHealth, getMeta, getExperiments, getExecutionJobs, getExecutionJob, cancelExecutionJob, submitExecutionJob, runBacktest, runHandoffBacktest, generateAlphaIdeas } from "./api";
 import { demoExamples, demoAlphas, makeDemoResult } from "./mockData";
 
 const NAV = [
@@ -296,7 +296,16 @@ export default function App() {
     if (strategyPrompt.trim().length < 20) { notify("Describe your strategy in a little more detail (at least 20 characters)."); return; }
     setGeneratingIdeas(true); setGeneratedIdeas([]); setGenerationNote(""); setIdeaBacktests({});
     try {
-      const response = await generateAlphaIdeas({ idea: strategyPrompt, universe, start, end });
+      const response = await generateAlphaIdeas({
+        idea: strategyPrompt, cluster: "D1", universe, start, end,
+        strategy_context: {
+          holding_period_bars: Number(holding),
+          execution_lag_bars: Number(lag),
+          execution_price: executionPrice,
+          portfolio,
+          weighting,
+        },
+      });
       setGeneratedIdeas(response.ideas || []); setGenerationNote(response.note || "Review each hypothesis and its limitations before running it.");
       notify(`Gemini generated ${(response.ideas || []).length} validated candidate ideas.`);
     } catch (err) { setGenerationNote(err.message); notify(`Idea generation failed: ${err.message}`); }
@@ -307,9 +316,26 @@ export default function App() {
     setPage("create"); notify("Expression loaded. Review it and the backtest settings before running.");
   };
   const backtestGeneratedIdea = async (idea) => {
+    const handoff = idea?.handoff;
+    if (!handoff || handoff.assistant_status !== "ready_for_notebook2") {
+      setIdeaBacktests(old => ({
+        ...old,
+        [idea.id]: { status: "error", error: "This candidate needs clarification before it can be backtested." }
+      }));
+      return;
+    }
     setIdeaBacktests(old => ({ ...old, [idea.id]: { status: "running" } }));
     try {
-      const out = await runBacktest({ ...buildPayload(), expression: idea.expression });
+      const overrides = {
+        transaction_cost_bps: Number(cost),
+        slippage_bps: Number(slippage),
+        n_buckets: Number(buckets),
+        k: Number(k),
+        long_exposure: Number(longExposure),
+        short_exposure: Number(shortExposure),
+        ...(positionCap !== "" ? { max_position_weight: Number(positionCap) } : {}),
+      };
+      const out = await runHandoffBacktest(handoff, { start, end, overrides });
       setIdeaBacktests(old => ({ ...old, [idea.id]: { status: "success", result: out } }));
       setHistory(old => [{ experiment_id: out.experiment_id, status: "success", expression: idea.expression, created_at: new Date().toISOString() }, ...old].slice(0, 30));
     } catch (err) { setIdeaBacktests(old => ({ ...old, [idea.id]: { status: "error", error: err.message } })); }
@@ -396,7 +422,7 @@ export default function App() {
           </div>
           {generationNote && <div className={`generation-note ${generatedIdeas.length ? "success-note" : "error-note"}`}>{generationNote}</div>}
           {generatedIdeas.length > 0 && <div className="generated-ideas"><div className="generated-ideas-head"><div><strong>Candidate alpha ideas</strong><span>{generatedIdeas.length} candidates · syntax/registry checked, not yet proven profitable</span></div><span className="validation-chip"><ShieldCheck size={13}/> Engine fields checked</span></div>
-            {generatedIdeas.map((idea, idx) => { const bt=ideaBacktests[idea.id]; return <article className="generated-idea-card" key={idea.id || idx}><div className="generated-idea-top"><span className="idea-index">0{idx+1}</span><div className="generated-idea-copy"><h4>{idea.name}</h4><p>{idea.hypothesis}</p></div><Status status={bt?.status === "success" ? "Backtested" : bt?.status === "running" ? "Running" : bt?.status === "error" ? "Failed" : "Candidate"}/></div><code className="generated-expression">{idea.expression}</code><div className="generated-idea-details"><div><strong>Why it might work</strong><p>{idea.rationale}</p></div><div><strong>Expected behavior</strong><p>{idea.expected_behavior}</p></div><div><strong>Risks & caveats</strong><p>{Array.isArray(idea.risks) ? idea.risks.join(" ") : idea.risks}</p></div></div>{bt?.status === "success" && <div className="candidate-result-strip"><span>Net Sharpe <b>{fmtNum(bt.result?.summary?.sharpe_net)}</b></span><span>Annual net return <b>{fmtPct(bt.result?.summary?.annual_return_net)}</b></span><span>Max drawdown <b>{fmtPct(bt.result?.summary?.max_drawdown)}</b></span></div>}{bt?.status === "error" && <p className="candidate-error">Backtest failed: {bt.error}</p>}<div className="generated-idea-actions"><button className="btn btn-secondary" onClick={()=>selectGeneratedIdea(idea)}>Open in expression editor</button><button className="btn btn-primary" disabled={bt?.status === "running"} onClick={()=>backtestGeneratedIdea(idea)}>{bt?.status === "running"?<RefreshCw className="spin" size={14}/>:<Play size={14}/>}{bt?.status === "running"?"Backtesting…":bt?.status === "success"?"Run again":"Backtest this idea"}</button></div></article>})}
+            {generatedIdeas.map((idea, idx) => { const bt=ideaBacktests[idea.id]; return <article className="generated-idea-card" key={idea.id || idx}><div className="generated-idea-top"><span className="idea-index">0{idx+1}</span><div className="generated-idea-copy"><h4>{idea.name}</h4><p>{idea.hypothesis}</p></div><Status status={bt?.status === "success" ? "Backtested" : bt?.status === "running" ? "Running" : bt?.status === "error" ? "Failed" : idea.handoff?.assistant_status === "ready_for_notebook2" ? "Ready" : "Needs clarification"}/></div><code className="generated-expression">{idea.expression}</code><div className="generated-idea-details"><div><strong>Why it might work</strong><p>{idea.rationale}</p></div><div><strong>Expected behavior</strong><p>{idea.expected_behavior}</p></div><div><strong>Risks & caveats</strong><p>{Array.isArray(idea.risks) ? idea.risks.join(" ") : idea.risks}</p></div></div>{idea.handoff?.assistant_status !== "ready_for_notebook2" && <p className="candidate-error">Clarification needed: {(idea.handoff?.clarifying_questions || []).join(" ") || "Complete entry, exit, and execution rules before backtesting."}</p>}{bt?.status === "success" && <div className="candidate-result-strip"><span>Net Sharpe <b>{fmtNum(bt.result?.summary?.sharpe_net)}</b></span><span>Annual net return <b>{fmtPct(bt.result?.summary?.annual_return_net)}</b></span><span>Max drawdown <b>{fmtPct(bt.result?.summary?.max_drawdown)}</b></span></div>}{bt?.status === "error" && <p className="candidate-error">Backtest failed: {bt.error}</p>}<div className="generated-idea-actions"><button className="btn btn-secondary" onClick={()=>selectGeneratedIdea(idea)}>Open in expression editor</button><button className="btn btn-primary" disabled={bt?.status === "running" || idea.handoff?.assistant_status !== "ready_for_notebook2"} onClick={()=>backtestGeneratedIdea(idea)}>{bt?.status === "running"?<RefreshCw className="spin" size={14}/>:<Play size={14}/>}{bt?.status === "running"?"Backtesting…":bt?.status === "success"?"Run again":idea.handoff?.assistant_status !== "ready_for_notebook2"?"Needs clarification":"Backtest this idea"}</button></div></article>})}
           </div>}
         </Panel>
         <div className="editor-layout">
