@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 CACHE_VERSION = 1
+# Increment whenever prompt instructions/output schema materially change.
+PROMPT_VERSION = 2
 DEFAULT_MAX_ENTRIES = 200
 MAX_CACHE_FILE_BYTES = 5 * 1024 * 1024
 MAX_RESPONSE_BYTES = 16 * 1024
@@ -44,6 +46,7 @@ def make_cache_key(
 ) -> str:
     payload = {
         "version": CACHE_VERSION,
+        "prompt_version": PROMPT_VERSION,
         "idea": normalize_idea(idea),
         "fields": sorted(fields),
         "operators": sorted(operators),
