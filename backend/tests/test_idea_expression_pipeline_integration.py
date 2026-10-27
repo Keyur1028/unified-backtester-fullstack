@@ -29,7 +29,10 @@ class IdeaExpressionPipelineIntegrationTests(unittest.TestCase):
                     "native_ohlcv": ["close", "volume"],
                     "engineered": ["momentum_20"],
                     "external": "",
-                }
+                },
+                "universes": {"NIFTY50": "static"},
+                "portfolio_types": ["LONG_ONLY", "LONG_SHORT"],
+                "weighting_schemes": ["EQUAL_WEIGHT", "SIGNAL_WEIGHTED"],
             },
         )
         self.interface_patch.start()
@@ -100,6 +103,36 @@ class IdeaExpressionPipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(second.status_code, 200, second.get_json())
         self.assertEqual(second.get_json()["cache"], {"hit": True, "strategy": "exact-match"})
         generate.assert_called_once()
+
+    def test_intraday_context_is_rejected_before_model_call(self):
+        with patch.object(api_app, "generate_candidates") as generate:
+            response = self.client.post(
+                "/api/generate-alpha",
+                json={
+                    "idea": "Trade the intraday breakout when volume expands and momentum rises.",
+                    "cluster": "D0",
+                    "universe": "NIFTY50",
+                },
+            )
+        self.assertEqual(response.status_code, 422, response.get_json())
+        self.assertEqual(response.get_json()["assistant_status"], "unsupported")
+        self.assertFalse(response.get_json()["backtest_executed"])
+        generate.assert_not_called()
+
+    def test_invalid_strategy_context_is_rejected_before_model_call(self):
+        with patch.object(api_app, "generate_candidates") as generate:
+            response = self.client.post(
+                "/api/generate-alpha",
+                json={
+                    "idea": "Find stocks with persistent price momentum over one month.",
+                    "cluster": "D1",
+                    "universe": "NIFTY50",
+                    "strategy_context": {"holding_period_bars": True},
+                },
+            )
+        self.assertEqual(response.status_code, 400, response.get_json())
+        self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
+        generate.assert_not_called()
 
     def test_invalid_model_expression_is_rejected_and_not_cached(self):
         model_response = json.dumps({

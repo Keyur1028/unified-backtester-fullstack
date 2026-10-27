@@ -69,7 +69,12 @@ class CandidatePayloadTests(unittest.TestCase):
         response_module.Client = FakeClient
         google_module = types.ModuleType("google")
         google_module.genai = response_module
-        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
+        interface = {
+            "fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""},
+            "universes": {"NIFTY50": "static"},
+            "portfolio_types": ["LONG_ONLY", "LONG_SHORT"],
+            "weighting_schemes": ["EQUAL_WEIGHT", "SIGNAL_WEIGHTED"],
+        }
 
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(api_app, "STORE", Path(directory)):

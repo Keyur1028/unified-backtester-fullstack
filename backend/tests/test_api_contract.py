@@ -4,6 +4,7 @@ These tests mock the engine boundary and never call Yahoo Finance or Gemini.
 Run from the repository root with:
     python -m unittest discover -s backend/tests -v
 """
+import json
 import os
 import sys
 import unittest
@@ -119,7 +120,7 @@ class ApiContractTests(unittest.TestCase):
 
 
     def test_generate_alpha_high_similarity_hit_skips_gemini_key(self):
-        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
+        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}, "universes": {"NIFTY50": "static"}, "portfolio_types": ["LONG_ONLY", "LONG_SHORT"], "weighting_schemes": ["EQUAL_WEIGHT", "SIGNAL_WEIGHTED"]}
         idea = "Find persistent momentum using price trend and recent trading volume"
         prior_ideas = [{
             "id": "idea-1",
@@ -147,7 +148,7 @@ class ApiContractTests(unittest.TestCase):
 
     @patch.object(api_app, "validate_candidate_runtime", return_value=(True, None))
     def test_generate_alpha_cache_hit_does_not_require_gemini_key(self, _mock_runtime):
-        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
+        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}, "universes": {"NIFTY50": "static"}, "portfolio_types": ["LONG_ONLY", "LONG_SHORT"], "weighting_schemes": ["EQUAL_WEIGHT", "SIGNAL_WEIGHTED"]}
         idea = "Capture persistent momentum with a volatility penalty."
         model = "test-model"
         response_body = {"ideas": [{"expression": "rank(close)", "id": "idea-1"}], "rejected": [], "model": model}
@@ -156,7 +157,8 @@ class ApiContractTests(unittest.TestCase):
                 with patch.object(api_app.engine, "describe_interface", return_value=interface):
                     with patch.object(api_app.engine, "OPERATORS", {"rank": object(), "ts_mean": object()}):
                         with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
-                            key = make_cache_key(idea, ["close"], ["rank", "ts_mean"], model)
+                            cache_brief = idea + '\nResearch context: ' + json.dumps({"cluster": "D1", "universe": "NIFTY50", "strategy_context": {}}, sort_keys=True, ensure_ascii=False)
+                            key = make_cache_key(cache_brief, ["close"], ["rank", "ts_mean"], model)
                             write_cached_response(Path(directory) / "idea_generation_cache.json", key, response_body)
                             with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": model}):
                                 response = self.client.post("/api/generate-alpha", json={"idea": idea})
@@ -171,7 +173,7 @@ class ApiContractTests(unittest.TestCase):
         With no Gemini key configured, a 503 ConfigurationError proves the request
         fell through to the model path, and a 200 proves it was reused.
         """
-        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
+        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}, "universes": {"NIFTY50": "static"}, "portfolio_types": ["LONG_ONLY", "LONG_SHORT"], "weighting_schemes": ["EQUAL_WEIGHT", "SIGNAL_WEIGHTED"]}
         prior_ideas = [{"id": "idea-1", "expression": "rank(close)", "validation": "syntax-and-registry-pass"}]
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(api_app, "STORE", Path(directory)):

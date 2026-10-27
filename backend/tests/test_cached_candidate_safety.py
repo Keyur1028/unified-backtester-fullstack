@@ -61,7 +61,10 @@ class CachedCandidateSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(api_app, "STORE", Path(directory)):
                 with patch.object(api_app.engine, "describe_interface", return_value={
-                    "fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}
+                    "fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""},
+                    "universes": {"NIFTY50": "static"},
+                    "portfolio_types": ["LONG_ONLY", "LONG_SHORT"],
+                    "weighting_schemes": ["EQUAL_WEIGHT", "SIGNAL_WEIGHTED"]
                 }):
                     with patch.object(api_app.engine, "OPERATORS", {"rank": object(), "ts_mean": object()}):
                         with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
@@ -82,7 +85,10 @@ class CachedCandidateSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(api_app, "STORE", Path(directory)):
                 with patch.object(api_app.engine, "describe_interface", return_value={
-                    "fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}
+                    "fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""},
+                    "universes": {"NIFTY50": "static"},
+                    "portfolio_types": ["LONG_ONLY", "LONG_SHORT"],
+                    "weighting_schemes": ["EQUAL_WEIGHT", "SIGNAL_WEIGHTED"]
                 }):
                     with patch.object(api_app.engine, "OPERATORS", {"rank": object(), "ts_mean": object()}):
                         with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
