@@ -21,17 +21,16 @@ from candidate_payload import compact_generated_candidate
 from alpha_generation_service import build_generation_prompt, generate_candidates
 from backtest_service import run_backtest
 from execution_job_contract import ExecutionJobStatus, RunConfiguration
-from execution_job_store import (
-    ExecutionJobNotFoundError,
-    SQLiteExecutionJobStore,
-)
+from execution_job_store import ExecutionJobNotFoundError
+from execution_job_store_factory import create_execution_job_store
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
 STORE.mkdir(parents=True, exist_ok=True)
 TRACKER_FILE = STORE / "experiment_log.json"
 JOB_DATABASE = os.getenv("EXECUTION_JOB_DB", str(STORE / "execution_jobs.sqlite3"))
-JOB_STORE = SQLiteExecutionJobStore(JOB_DATABASE)
+JOB_DATABASE_URL = os.getenv("EXECUTION_JOB_DATABASE_URL", "").strip()
+JOB_STORE = create_execution_job_store(JOB_DATABASE_URL, JOB_DATABASE)
 try:
     if TRACKER_FILE.exists():
         engine.TRACKER.load(str(TRACKER_FILE), replace=True)
