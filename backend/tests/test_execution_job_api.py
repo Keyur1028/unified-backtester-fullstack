@@ -64,6 +64,74 @@ class ExecutionJobApiTests(unittest.TestCase):
         self.assertEqual(fetched.status_code, 200)
         self.assertEqual(fetched.get_json(), completed)
 
+    @patch.object(api_app, "validate_candidate_runtime", return_value=(True, None))
+    def test_ready_handoff_is_revalidated_and_mapped_to_execution_config(self, _runtime):
+        handoff = {
+            "schema_version": "1.0",
+            "assistant_status": "ready_for_notebook2",
+            "alpha_expression": "rank(close)",
+            "cluster": "D1",
+            "universe": "NIFTY50",
+            "strategy_context": {
+                "holding_period_bars": 5,
+                "execution_lag_bars": 1,
+                "execution_price": "open",
+                "portfolio": "LONG_ONLY",
+                "weighting": "EQUAL_WEIGHT",
+            },
+            "backtest_executed": False,
+            "notebook2_must_revalidate": True,
+        }
+        response = self.client.post(
+            "/api/execution-jobs/from-handoff",
+            json={"handoff": handoff, "start": "2022-01-01", "end": "2023-01-01",
+                  "overrides": {"transaction_cost_bps": 8}},
+        )
+        self.assertEqual(response.status_code, 202, response.get_json())
+        body = response.get_json()
+        self.assertEqual(body["status"], "queued")
+        self.assertEqual(body["config"]["expression"], "rank(close)")
+        self.assertEqual(body["config"]["holding_period"], 5)
+        self.assertEqual(body["config"]["execution_price"], "open")
+        self.assertEqual(body["config"]["portfolio"], "LONG_ONLY")
+        self.assertEqual(body["config"]["transaction_cost_bps"], 8)
+        self.assertEqual(body["handoff"]["independent_validation"], "passed")
+        self.assertFalse(body["handoff"]["backtest_executed"])
+
+    def test_handoff_needing_clarification_is_not_queued(self):
+        response = self.client.post(
+            "/api/execution-jobs/from-handoff",
+            json={
+                "handoff": {
+                    "schema_version": "1.0",
+                    "assistant_status": "needs_clarification",
+                    "clarifying_questions": ["What is the exit condition?"],
+                },
+                "start": "2022-01-01", "end": "2023-01-01",
+            },
+        )
+        self.assertEqual(response.status_code, 422, response.get_json())
+        self.assertEqual(response.get_json()["error"]["type"], "ClarificationRequired")
+        self.assertEqual(self.store.list_jobs(), [])
+
+    def test_handoff_expression_is_independently_rejected_when_invalid(self):
+        response = self.client.post(
+            "/api/execution-jobs/from-handoff",
+            json={
+                "handoff": {
+                    "schema_version": "1.0",
+                    "assistant_status": "ready_for_notebook2",
+                    "alpha_expression": "unknown_operator(close)",
+                    "cluster": "D1",
+                    "universe": "NIFTY50",
+                    "strategy_context": {},
+                },
+                "start": "2022-01-01", "end": "2023-01-01",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.get_json())
+        self.assertEqual(self.store.list_jobs(), [])
+
     def test_engine_error_is_persisted_as_failed_job(self):
         envelope = {
             "status": "error",

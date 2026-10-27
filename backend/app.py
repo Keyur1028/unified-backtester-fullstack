@@ -495,6 +495,25 @@ def execute_execution_job(job_id: str) -> dict[str, Any]:
             raise
 
 
+def _validated_execution_job_configuration(payload: dict[str, Any]) -> RunConfiguration:
+    """Validate a normal backtest request against the current engine contract."""
+    validated_payload = engine.validate_backtest_request(payload)
+    fields_info = engine.describe_interface().get("fields", {})
+    fields = set()
+    for value in fields_info.values():
+        if isinstance(value, list):
+            fields.update(str(item) for item in value)
+        elif isinstance(value, dict):
+            fields.update(str(item) for item in value.keys())
+    operators = set(engine.OPERATORS) | set(engine.GROUP_OPERATORS)
+    expression_valid, expression_error = validate_expression(
+        validated_payload["expression"], fields, operators
+    )
+    if not expression_valid:
+        raise ValueError(expression_error or "Expression validation failed.")
+    return RunConfiguration.from_payload(validated_payload)
+
+
 @app.post("/api/execution-jobs")
 def create_execution_job():
     """Persist a run request and return immediately for background processing."""
@@ -505,29 +524,7 @@ def create_execution_job():
         return jsonify({"error": {"type": "ValidationError", "message": "Request body must be a JSON object"}}), 400
 
     try:
-        # Reject malformed configurations before they consume queue/storage capacity.
-        validated_payload = engine.validate_backtest_request(payload)
-
-        fields_info = engine.describe_interface().get("fields", {})
-        fields = set()
-        for value in fields_info.values():
-            if isinstance(value, list):
-                fields.update(str(item) for item in value)
-            elif isinstance(value, dict):
-                fields.update(str(item) for item in value.keys())
-        operators = set(engine.OPERATORS) | set(engine.GROUP_OPERATORS)
-        expression_valid, expression_error = validate_expression(
-            validated_payload["expression"], fields, operators
-        )
-        if not expression_valid:
-            return jsonify({
-                "error": {
-                    "type": "ValidationError",
-                    "message": expression_error or "Expression validation failed.",
-                }
-            }), 400
-
-        configuration = RunConfiguration.from_payload(validated_payload)
+        configuration = _validated_execution_job_configuration(payload)
     except (TypeError, ValueError) as exc:
         return jsonify({
             "error": {
@@ -538,6 +535,99 @@ def create_execution_job():
 
     job = JOB_STORE.create_job(configuration)
     return jsonify(job), 202
+
+
+@app.post("/api/execution-jobs/from-handoff")
+def create_execution_job_from_handoff():
+    """Revalidate a strategy handoff and queue its expression for a real backtest."""
+    if not request.is_json:
+        return jsonify({"error": {"type": "ValidationError", "message": "Content-Type must be application/json"}}), 415
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": {"type": "ValidationError", "message": "Request body must be a JSON object"}}), 400
+    handoff = body.get("handoff")
+    if not isinstance(handoff, dict):
+        return jsonify({"error": {"type": "ValidationError", "message": "handoff must be a strategy handoff object."}}), 400
+    if handoff.get("schema_version") != "1.0":
+        return jsonify({"error": {"type": "ValidationError", "message": "Unsupported handoff schema version."}}), 400
+    if handoff.get("assistant_status") != "ready_for_notebook2":
+        return jsonify({
+            "error": {"type": "ClarificationRequired", "message": "Only ready_for_notebook2 handoffs can be queued."},
+            "clarifying_questions": handoff.get("clarifying_questions", []),
+            "backtest_executed": False,
+        }), 422
+    if handoff.get("cluster") != "D1":
+        return jsonify({"error": {"type": "UnsupportedStrategyContext", "message": "Only D1 daily-bar strategies are supported."}}), 422
+
+    expression = handoff.get("alpha_expression")
+    universe = handoff.get("universe")
+    context = handoff.get("strategy_context", {})
+    if not isinstance(expression, str) or not expression.strip():
+        return jsonify({"error": {"type": "ValidationError", "message": "handoff.alpha_expression must be a non-empty string."}}), 400
+    if not isinstance(context, dict):
+        return jsonify({"error": {"type": "ValidationError", "message": "handoff.strategy_context must be an object."}}), 400
+
+    config = {
+        "expression": expression,
+        "universe": universe,
+        "start": body.get("start"),
+        "end": body.get("end"),
+    }
+    context_mapping = {
+        "holding_period_bars": "holding_period",
+        "execution_lag_bars": "execution_lag_bars",
+        "execution_price": "execution_price",
+        "portfolio": "portfolio",
+        "weighting": "weighting",
+    }
+    for source, target in context_mapping.items():
+        if source in context:
+            config[target] = context[source]
+
+    overrides = body.get("overrides", {})
+    if not isinstance(overrides, dict):
+        return jsonify({"error": {"type": "ValidationError", "message": "overrides must be an object."}}), 400
+    allowed_overrides = {
+        "transaction_cost_bps", "slippage_bps", "n_buckets", "k",
+        "max_position_weight", "long_exposure", "short_exposure", "group_map",
+    }
+    unknown_overrides = sorted(set(overrides) - allowed_overrides)
+    if unknown_overrides:
+        return jsonify({"error": {"type": "ValidationError", "message": "Unsupported override(s): " + ", ".join(unknown_overrides)}}), 400
+    config.update(overrides)
+
+    try:
+        # Static registry validation is repeated here; a handoff is never trusted
+        # as proof that its expression is valid against the current engine.
+        configuration = _validated_execution_job_configuration(config)
+        fields_info = engine.describe_interface().get("fields", {})
+        fields = set()
+        for value in fields_info.values():
+            if isinstance(value, list):
+                fields.update(str(item) for item in value)
+            elif isinstance(value, dict):
+                fields.update(str(item) for item in value.keys())
+        runtime_ok, runtime_reason = validate_candidate_runtime(
+            engine, configuration.to_dict()["expression"], fields
+        )
+        if not runtime_ok:
+            raise ValueError("Synthetic runtime probe failed: " + (runtime_reason or "unknown error"))
+    except (TypeError, ValueError) as exc:
+        return jsonify({
+            "error": {"type": "ValidationError", "message": str(exc)[:500] or "Handoff validation failed."},
+            "backtest_executed": False,
+        }), 400
+
+    job = JOB_STORE.create_job(configuration)
+    return jsonify({
+        **job,
+        "handoff": {
+            "schema_version": handoff["schema_version"],
+            "assistant_status": handoff["assistant_status"],
+            "backtest_executed": False,
+            "independent_validation": "passed",
+        },
+    }), 202
 
 
 @app.get("/api/execution-jobs")
