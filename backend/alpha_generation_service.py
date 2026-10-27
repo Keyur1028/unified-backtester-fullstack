@@ -5,6 +5,7 @@ import json
 from typing import Any, Iterable
 
 from retrieval_context import format_retrieval_context
+from generation_gateway import invoke_json_generation
 
 
 def build_generation_prompt(
@@ -74,13 +75,5 @@ def build_generation_prompt(
 
 
 def generate_candidates(api_key: str, model: str, prompt: str) -> str:
-    """Invoke the configured Gemini model and return its raw JSON response text."""
-    from google import genai
-
-    client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config={"response_mime_type": "application/json", "temperature": 0.35},
-    )
-    return response.text or "{}"
+    """Generate bounded JSON through the timeout/retry-aware provider gateway."""
+    return invoke_json_generation(api_key, model, prompt)
