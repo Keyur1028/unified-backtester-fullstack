@@ -180,6 +180,41 @@ def generate_alpha_ideas():
         return jsonify({"error": {"type": "ValidationError", "message": "Describe the strategy in at least 20 characters, including the behavior you want to capture."}}), 400
     if len(idea) > 5000:
         return jsonify({"error": {"type": "ValidationError", "message": "Strategy prompt must be 5,000 characters or fewer."}}), 400
+
+    # Optional structured fields from the research-idea notebook. Bound them before
+    # using them in model prompts, cache keys, or retrieval features.
+    rationale_for_data_used = payload.get("rationale_for_data_used", "")
+    rationale_for_operators_used = payload.get("rationale_for_operators_used", "")
+    strategy_context = payload.get("strategy_context", {})
+    for field_name, value in (
+        ("rationale_for_data_used", rationale_for_data_used),
+        ("rationale_for_operators_used", rationale_for_operators_used),
+    ):
+        if not isinstance(value, str):
+            return jsonify({"error": {"type": "ValidationError", "message": f"{field_name} must be a string."}}), 400
+        if len(value) > 2000:
+            return jsonify({"error": {"type": "ValidationError", "message": f"{field_name} must be 2,000 characters or fewer."}}), 400
+    if not isinstance(strategy_context, dict):
+        return jsonify({"error": {"type": "ValidationError", "message": "strategy_context must be a JSON object."}}), 400
+    try:
+        strategy_context_json = json.dumps(strategy_context, sort_keys=True, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return jsonify({"error": {"type": "ValidationError", "message": "strategy_context must contain JSON-compatible values."}}), 400
+    if len(strategy_context_json) > 2000:
+        return jsonify({"error": {"type": "ValidationError", "message": "strategy_context must be 2,000 characters or fewer."}}), 400
+
+    research_context = {
+        "rationale_for_data_used": rationale_for_data_used.strip(),
+        "rationale_for_operators_used": rationale_for_operators_used.strip(),
+        "strategy_context": strategy_context,
+    }
+    research_brief = idea
+    if research_context["rationale_for_data_used"]:
+        research_brief += "\nRationale for data used: " + research_context["rationale_for_data_used"]
+    if research_context["rationale_for_operators_used"]:
+        research_brief += "\nRationale for operators used: " + research_context["rationale_for_operators_used"]
+    if strategy_context:
+        research_brief += "\nStrategy context: " + strategy_context_json
     fields_info = engine.describe_interface().get("fields", {})
     fields = set()
     for value in fields_info.values():
@@ -187,7 +222,7 @@ def generate_alpha_ideas():
         elif isinstance(value, dict): fields.update(str(x) for x in value.keys())
     operators = set(engine.OPERATORS) | set(engine.GROUP_OPERATORS)
     model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-    cache_key = make_cache_key(idea, sorted(fields), sorted(operators), model)
+    cache_key = make_cache_key(research_brief, sorted(fields), sorted(operators), model)
     cache_path = STORE / "idea_generation_cache.json"
     cached = read_cached_response(cache_path, cache_key)
     if cached is not None:
@@ -215,7 +250,7 @@ def generate_alpha_ideas():
     catalog_id = catalog_fingerprint(fields, operators)
     retrieval_path = STORE / "idea_retrieval_index.json"
     similar_ideas = retrieve_similar(
-        retrieval_path, idea, model, catalog_id, limit=3, min_similarity=0.25
+        retrieval_path, research_brief, model, catalog_id, limit=3, min_similarity=0.25
     )
 
     # Reuse a prior validated candidate set only for a very close lexical match.
@@ -276,7 +311,7 @@ def generate_alpha_ideas():
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return jsonify({"error": {"type": "ConfigurationError", "message": "Gemini is not configured. Add GEMINI_API_KEY to backend/.env and restart the backend."}}), 503
-    prompt = build_generation_prompt(idea, fields, operators, similar_ideas)
+    prompt = build_generation_prompt(idea, fields, operators, similar_ideas, research_context=research_context)
     try:
         response_text = generate_candidates(api_key, model, prompt)
         raw = json.loads(response_text)
