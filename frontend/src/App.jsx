@@ -123,7 +123,9 @@ export default function App() {
             expression: job.config?.expression || job.result?.expression || job.result?.config?.expression || "",
             status: job.status,
             created_at: job.created_at,
-            error: job.error
+            error: job.error,
+            result: job.result,
+            config: job.config
           })));
           setHistoryLoaded(true);
         }
@@ -150,6 +152,23 @@ export default function App() {
     const matches = `${a.name} ${a.expression} ${a.id} ${(a.tags || []).join(" ")}`.toLowerCase().includes(search.toLowerCase());
     return matches && (statusFilter === "All statuses" || a.status === statusFilter);
   }).sort((a,b) => sortKey === "sharpe" ? (b.sharpe || -Infinity) - (a.sharpe || -Infinity) : String(b[sortKey] || "").localeCompare(String(a[sortKey] || ""))), [alphas, search, statusFilter, sortKey]);
+
+  const inspectRun = (run) => {
+    if (run.status === "succeeded" && run.result) {
+      setResult(run.result);
+      setIsDemoResult(false);
+      if (run.expression) setExpression(run.expression);
+      setPage("results");
+      setActiveTab("Overview");
+      notify("Loaded the saved result for this execution job.");
+      return;
+    }
+    if (run.status === "failed") {
+      notify(run.error?.message || "This execution job failed and has no result to inspect.");
+      return;
+    }
+    notify(run.result ? "This execution job is not complete yet." : "A saved result is not available for this history entry.");
+  };
 
   const applyAlpha = (alpha) => {
     setSelectedAlpha(alpha); setExpression(alpha.expression); setAlphaName(alpha.name); setUniverse(alpha.universe || "NIFTY50");
@@ -366,7 +385,7 @@ export default function App() {
         <Panel title={page==="saved"?"Alpha library":"Execution job history"} subtitle={page==="saved"?"Saved expressions in this workspace":historyLoaded?"Latest persisted backtest jobs from the backend":"Backend history unavailable; showing preview rows"} action={<button className="btn btn-secondary" onClick={()=>page==="saved"?saveAlpha():refreshHealth()}><RefreshCw size={14}/> Refresh</button>}>
           <div className="table-toolbar"><div className="search-box"><Search size={15}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name, expression or run ID…"/></div><span className="muted small-text">{page==="saved"?filteredAlphas.length:history.length || 4} items</span></div>
           {page==="saved" ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Alpha</th><th>Status</th><th>Universe</th><th>Latest Sharpe</th><th>Updated</th><th/></tr></thead><tbody>{filteredAlphas.map(a=><tr key={a.id} className="clickable-row" onClick={()=>applyAlpha(a)}><td><strong>{a.name}</strong><small className="table-expression mono">{a.expression}</small></td><td><Status status={a.status}/></td><td>{a.universe}</td><td className="mono">{fmtNum(a.sharpe)}</td><td className="muted">{a.updated}</td><td><button className="btn btn-quiet" onClick={e=>{e.stopPropagation();applyAlpha(a);}}>Open <ChevronRight size={13}/></button></td></tr>)}</tbody></table></div>
-          : <div className="table-scroll"><table className="data-table"><thead><tr><th>Run ID</th><th>Expression</th><th>Status</th><th>Created</th><th/></tr></thead><tbody>{(historyLoaded?history:(history.length?history:[{experiment_id:"demo-8fa2c1",status:"success",expression:demoExamples[0].expression,created_at:new Date().toISOString()},{experiment_id:"demo-7c20e4",status:"success",expression:demoExamples[2].expression,created_at:new Date(Date.now()-86400000).toISOString()}])).filter(r=>(String(r.experiment_id || "")+" "+String(r.run_id || "")+" "+String(r.expression || "")).toLowerCase().includes(search.toLowerCase())).map((r,i)=><tr key={r.experiment_id||r.run_id||i}><td className="mono">{r.experiment_id || r.run_id}</td><td><code className="table-expression" title={r.error?.message || ""}>{r.expression || "Expression snapshot unavailable"}</code></td><td><Status status={r.status==="success"?"Succeeded":r.status}/></td><td className="muted">{r.created_at?new Date(r.created_at).toLocaleString():"—"}</td><td><button className="btn btn-quiet" onClick={()=>nav("results")}>Inspect <ChevronRight size={13}/></button></td></tr>)}{historyLoaded && history.length===0 && <tr><td colSpan={5} className="muted">No execution jobs yet. Run a backtest to populate this history.</td></tr>}</tbody></table></div>}
+          : <div className="table-scroll"><table className="data-table"><thead><tr><th>Run ID</th><th>Expression</th><th>Status</th><th>Created</th><th/></tr></thead><tbody>{(historyLoaded?history:(history.length?history:[{experiment_id:"demo-8fa2c1",status:"success",expression:demoExamples[0].expression,created_at:new Date().toISOString()},{experiment_id:"demo-7c20e4",status:"success",expression:demoExamples[2].expression,created_at:new Date(Date.now()-86400000).toISOString()}])).filter(r=>(String(r.experiment_id || "")+" "+String(r.run_id || "")+" "+String(r.expression || "")).toLowerCase().includes(search.toLowerCase())).map((r,i)=><tr key={r.experiment_id||r.run_id||i}><td className="mono">{r.experiment_id || r.run_id}</td><td><code className="table-expression" title={r.error?.message || ""}>{r.expression || "Expression snapshot unavailable"}</code></td><td><Status status={r.status==="success"?"Succeeded":r.status}/></td><td className="muted">{r.created_at?new Date(r.created_at).toLocaleString():"—"}</td><td><button className="btn btn-quiet" onClick={()=>inspectRun(r)}>Inspect <ChevronRight size={13}/></button></td></tr>)}{historyLoaded && history.length===0 && <tr><td colSpan={5} className="muted">No execution jobs yet. Run a backtest to populate this history.</td></tr>}</tbody></table></div>}
           <div className="table-foot"><span className="demo-inline">Run records are read from the backend job store. Multi-user deployments still need per-user authorization and shared storage.</span></div>
         </Panel>
         <Panel title="Compare completed runs" subtitle="Select two or more alphas to compare their latest preview metrics" action={<button className="btn btn-secondary" onClick={()=>notify("Comparison view is a preview; run snapshots should be compared via the production API.")}><GitCompare size={14}/> Compare selected ({selectedRuns.length})</button>}>
