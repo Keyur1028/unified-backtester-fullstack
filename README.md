@@ -201,3 +201,17 @@ Exact-match idea-cache keys include a prompt-contract version. When the model in
 ### Global model-call budget
 
 In addition to the per-client request limit, the backend reserves one shared daily budget slot only after exact-match and similarity-cache misses, so cache hits do not consume the paid-model budget. The default is 100 provider-bound generation requests per 24-hour fixed window; configure `ALPHA_MODEL_DAILY_CALL_LIMIT` (accepted range 1–100,000) to change it. Exhaustion returns HTTP 429 with `Retry-After`; storage failures fail closed with HTTP 503. This counts generation requests, not tokens or billing units, and one request may make a bounded retry, so provider billing can differ from the counter.
+
+
+## Live NIFTY 50 smoke test
+
+Run this opt-in smoke test only after starting the Flask API and at least one execution worker. It queues a real NIFTY 50 daily-bar backtest through the authenticated API and checks that the persisted result contains live-provider data, a usable time series, and core metrics. The worker must have working Yahoo Finance access; the test can take several minutes and may fail if the provider is unavailable.
+
+```bash
+# In the backend environment, set SUPABASE_AUTH_REQUIRED=true and SUPABASE_URL.
+# Start the API and worker in separate terminals, then export a valid user access token:
+export SUPABASE_ACCESS_TOKEN="..."
+python backend/scripts/smoke_live_nifty50.py --start 2023-01-01 --end 2025-12-31
+```
+
+The script does not call Gemini and therefore does not consume model tokens. It uses the fixed expression `rank(ts_mean(close, 20))` to isolate the real market-data/backtest path. The smoke test is deliberately excluded from CI because CI is offline and must remain deterministic. A passing run is a data-pipeline smoke test, not evidence of alpha profitability. Inspect the returned warnings: the bundled NIFTY 50 list may not represent point-in-time historical membership, and survivorship bias may remain.
