@@ -389,14 +389,46 @@ def backtest():
                         "error":err,"config":envelope.get("config")}), (400 if err.get("type")=="ValidationError" else 422)
     return jsonify(adapt_result(envelope,elapsed))
 
+def execute_execution_job(job_id: str) -> dict[str, Any]:
+    """Execute one queued job and persist a terminal result.
+
+    Safe for worker retries: only a queued job can transition to running, so
+    multiple workers cannot execute the same record concurrently.
+    """
+    job = JOB_STORE.get_job(job_id)
+    JOB_STORE.transition(job_id, ExecutionJobStatus.RUNNING)
+    started = time.perf_counter()
+    try:
+        envelope = run_backtest(job["config"])
+        elapsed = time.perf_counter() - started
+        try:
+            engine.TRACKER.save(str(TRACKER_FILE))
+        except Exception as exc:
+            app.logger.warning("Tracker persistence failed: %s", exc)
+
+        if not isinstance(envelope, dict) or envelope.get("status") != "success":
+            error = (envelope.get("error") if isinstance(envelope, dict) else None) or {
+                "type": "ExecutionError", "message": "Backtest execution failed."
+            }
+            return JOB_STORE.transition(job_id, ExecutionJobStatus.FAILED, error=error)
+
+        result = adapt_result(envelope, elapsed)
+        return JOB_STORE.transition(job_id, ExecutionJobStatus.SUCCEEDED, result=result)
+    except Exception:
+        app.logger.exception("Execution job failed")
+        try:
+            return JOB_STORE.transition(
+                job_id, ExecutionJobStatus.FAILED,
+                error={"type": "InternalError", "message": "Unexpected backtest execution failure."},
+            )
+        except Exception:
+            app.logger.exception("Could not persist failed execution-job status")
+            raise
+
+
 @app.post("/api/execution-jobs")
 def create_execution_job():
-    """Persist a run record and execute it synchronously through the authoritative engine.
-
-    This endpoint records lifecycle state but is not a background queue: the request
-    remains open until the backtest completes. The legacy /api/backtest contract is
-    intentionally unchanged.
-    """
+    """Persist a run request and return immediately for background processing."""
     if not request.is_json:
         return jsonify({"error": {"type": "ValidationError", "message": "Content-Type must be application/json"}}), 415
     payload = request.get_json(silent=True)
@@ -414,45 +446,7 @@ def create_execution_job():
         }), 400
 
     job = JOB_STORE.create_job(configuration)
-    JOB_STORE.transition(job["job_id"], ExecutionJobStatus.RUNNING)
-    started = time.perf_counter()
-    try:
-        envelope = run_backtest(payload)
-        elapsed = time.perf_counter() - started
-        try:
-            engine.TRACKER.save(str(TRACKER_FILE))
-        except Exception as exc:
-            app.logger.warning("Tracker persistence failed: %s", exc)
-
-        if envelope.get("status") != "success":
-            error = envelope.get("error") or {
-                "type": "ExecutionError", "message": "Backtest execution failed."
-            }
-            completed = JOB_STORE.transition(
-                job["job_id"], ExecutionJobStatus.FAILED, error=error
-            )
-            return jsonify(completed), 200
-
-        result = adapt_result(envelope, elapsed)
-        completed = JOB_STORE.transition(
-            job["job_id"], ExecutionJobStatus.SUCCEEDED, result=result
-        )
-        return jsonify(completed), 200
-    except Exception as exc:
-        app.logger.exception("Execution job failed")
-        try:
-            JOB_STORE.transition(
-                job["job_id"],
-                ExecutionJobStatus.FAILED,
-                error={"type": "InternalError", "message": "Unexpected backtest execution failure."},
-            )
-        except Exception:
-            app.logger.exception("Could not persist failed execution-job status")
-        return jsonify({
-            "job_id": job["job_id"],
-            "status": "failed",
-            "error": {"type": "InternalError", "message": "Unexpected backtest execution failure."},
-        }), 500
+    return jsonify(job), 202
 
 
 @app.get("/api/execution-jobs")
