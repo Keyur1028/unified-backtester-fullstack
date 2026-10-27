@@ -38,6 +38,23 @@ class AlphaGenerationServiceTests(unittest.TestCase):
         self.assertIn("\nRetrieved prior candidates", prompt)
         self.assertNotIn("\\\\nRetrieved prior candidates", prompt)
 
+    def test_prompt_includes_structured_research_context(self):
+        prompt = build_generation_prompt(
+            "Capture persistent price momentum.",
+            ["close", "volume"],
+            ["rank", "ts_mean"],
+            research_context={
+                "rationale_for_data_used": "Close measures the end-of-day price.",
+                "rationale_for_operators_used": "A rolling mean smooths noise.",
+                "strategy_context": {"cluster": "D1", "universe": "NIFTY100"},
+            },
+        )
+        self.assertIn("Structured research context", prompt)
+        self.assertIn("Close measures the end-of-day price.", prompt)
+        self.assertIn("A rolling mean smooths noise.", prompt)
+        self.assertIn('"universe": "NIFTY100"', prompt)
+        self.assertIn("active engine registry remains authoritative", prompt)
+
     def test_generate_candidates_uses_json_mode_and_returns_response_text(self):
         calls = []
         class FakeClient:
