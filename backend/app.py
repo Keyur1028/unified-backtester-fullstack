@@ -19,6 +19,7 @@ from idea_similarity_safety import has_directional_conflict
 from retrieval_context import format_retrieval_context
 from candidate_payload import compact_generated_candidate
 from candidate_runtime_validation import validate_candidate_runtime
+from research_context import validate_research_context
 from alpha_generation_service import build_generation_prompt, generate_candidates
 from backtest_service import run_backtest
 from execution_job_contract import ExecutionJobStatus, RunConfiguration
@@ -203,12 +204,30 @@ def generate_alpha_ideas():
     if len(strategy_context_json) > 2000:
         return jsonify({"error": {"type": "ValidationError", "message": "strategy_context must be 2,000 characters or fewer."}}), 400
 
+    capability_interface = engine.describe_interface()
+    normalized_context, context_errors, unsupported_context = validate_research_context(
+        payload, strategy_context, capability_interface
+    )
+    if context_errors:
+        return jsonify({"error": {"type": "ValidationError", "message": "Invalid research context.", "details": context_errors}}), 400
+    if unsupported_context:
+        return jsonify({
+            "status": "unsupported",
+            "assistant_status": "unsupported",
+            "alpha_expression": None,
+            "backtest_executed": False,
+            "warnings": ["D0 intraday is not supported by the current daily-bar engine."],
+            "error": {"type": "UnsupportedStrategyContext", "message": "The production engine does not support this strategy context."},
+        }), 422
+    strategy_context = normalized_context["strategy_context"]
+    strategy_context_json = json.dumps(normalized_context, sort_keys=True, ensure_ascii=False)
+
     research_context = {
         "rationale_for_data_used": rationale_for_data_used.strip(),
         "rationale_for_operators_used": rationale_for_operators_used.strip(),
-        "strategy_context": strategy_context,
+        **normalized_context,
     }
-    research_brief = idea
+    research_brief = idea + "\nResearch context: " + strategy_context_json
     if research_context["rationale_for_data_used"]:
         research_brief += "\nRationale for data used: " + research_context["rationale_for_data_used"]
     if research_context["rationale_for_operators_used"]:
