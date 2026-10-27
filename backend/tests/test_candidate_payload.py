@@ -25,6 +25,8 @@ class CandidatePayloadTests(unittest.TestCase):
             "rationale": "r" * 300,
             "expected_behavior": "e" * 250,
             "risks": ["x" * 200, "second", "third", "fourth"],
+            "entry_rules": ["rule"],
+            "clarifying_questions": ["question"],
             "provider_debug": "do not return",
         })
         self.assertIsNone(error)
@@ -36,6 +38,8 @@ class CandidatePayloadTests(unittest.TestCase):
         self.assertEqual(len(candidate["risks"]), 3)
         self.assertEqual(len(candidate["risks"][0]), 160)
         self.assertNotIn("provider_debug", candidate)
+        self.assertEqual(candidate["entry_rules"], ["rule"])
+        self.assertEqual(candidate["clarifying_questions"], ["question"])
 
     def test_oversized_expression_is_rejected_not_truncated(self):
         candidate, error = compact_generated_candidate({"expression": "x" * 1001})
