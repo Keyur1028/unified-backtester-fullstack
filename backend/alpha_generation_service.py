@@ -40,9 +40,9 @@ def build_generation_prompt(
         examples = format_retrieval_context(similar_ideas)
         if examples != "[]":
             prompt += (
-                "\\nRetrieved prior candidates (compact lexical matches; examples only, not proof of validity): "
+                "\nRetrieved prior candidates (compact lexical matches; examples only, not proof of validity): "
                 + examples
-                + "\\nUse these only as research context. Do not copy an expression unless it fits the current idea; "
+                + "\nUse these only as research context. Do not copy an expression unless it fits the current idea; "
                   "produce distinct candidates and still obey the active field/operator registry."
             )
     return prompt

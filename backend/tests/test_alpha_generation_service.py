@@ -35,6 +35,8 @@ class AlphaGenerationServiceTests(unittest.TestCase):
         self.assertIn("Retrieved prior candidates", prompt)
         self.assertIn("examples only, not proof of validity", prompt)
         self.assertIn("still obey the active field/operator registry", prompt)
+        self.assertIn("\nRetrieved prior candidates", prompt)
+        self.assertNotIn("\\\\nRetrieved prior candidates", prompt)
 
     def test_generate_candidates_uses_json_mode_and_returns_response_text(self):
         calls = []
