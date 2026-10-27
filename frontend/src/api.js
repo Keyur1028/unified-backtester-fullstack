@@ -23,6 +23,10 @@ export const getExecutionJobs = (limit = 30) => apiRequest(`/execution-jobs?limi
 export const getExecutionJob = (jobId) => apiRequest(`/execution-jobs/${encodeURIComponent(jobId)}`);
 export const cancelExecutionJob = (jobId) => apiRequest(`/execution-jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
 export const submitExecutionJob = (payload) => apiRequest("/execution-jobs", { method: "POST", body: JSON.stringify(payload) });
+export const submitExecutionJobFromHandoff = (payload) => apiRequest("/execution-jobs/from-handoff", {
+  method: "POST",
+  body: JSON.stringify(payload)
+});
 
 // Keep the legacy endpoint available for compatibility and direct API comparisons.
 export const runLegacyBacktest = (payload) => apiRequest("/backtest", {
@@ -31,8 +35,7 @@ export const runLegacyBacktest = (payload) => apiRequest("/backtest", {
 });
 
 // Submit a durable background job, then poll its persisted lifecycle.
-export const runBacktest = async (payload) => {
-  let job = await submitExecutionJob(payload);
+async function waitForExecutionJob(job) {
   const deadline = Date.now() + 30 * 60 * 1000;
   while (job?.status === "queued" || job?.status === "running") {
     if (Date.now() >= deadline) {
@@ -43,8 +46,14 @@ export const runBacktest = async (payload) => {
   }
   if (job?.status === "succeeded" && job.result) return job.result;
   if (job?.status === "failed") throw new Error(job.error?.message || "Backtest execution failed.");
-  if (job?.status === "cancelled") throw new Error("Backtest execution was cancelled.");
+  if (job?.status === "cancelled") throw new Error("Execution job was cancelled.");
   throw new Error(job?.error?.message || "Execution job returned an unexpected response.");
-};
+}
+
+export const runBacktest = async (payload) =>
+  waitForExecutionJob(await submitExecutionJob(payload));
+
+export const runHandoffBacktest = async (handoff, payload) =>
+  waitForExecutionJob(await submitExecutionJobFromHandoff({ handoff, ...payload }));
 
 export const generateAlphaIdeas = (payload) => apiRequest("/generate-alpha", { method: "POST", body: JSON.stringify(payload) });
