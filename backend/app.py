@@ -18,6 +18,7 @@ from similarity_retrieval import idea_tokens, retrieve_similar, store_idea_respo
 from idea_similarity_safety import has_directional_conflict
 from retrieval_context import format_retrieval_context
 from candidate_payload import compact_generated_candidate
+from strategy_handoff import build_strategy_handoff
 from candidate_runtime_validation import validate_candidate_runtime
 from research_context import validate_research_context
 from alpha_generation_service import build_generation_prompt, generate_candidates
@@ -70,6 +71,15 @@ def valid_cached_ideas(ideas, fields, operators):
         candidate["expression"] = expression
         accepted.append(candidate)
     return accepted
+
+
+def attach_strategy_handoffs(candidates, research_context, fields, operators):
+    """Attach a fresh, context-specific handoff to candidates from any cache path."""
+    for candidate in candidates:
+        candidate["handoff"] = build_strategy_handoff(
+            candidate, research_context, set(fields), set(operators)
+        )
+    return candidates
 
 
 def pairs(raw):
@@ -255,6 +265,7 @@ def generate_alpha_ideas():
                     break
                 candidate["runtime_validation"] = "synthetic-data-probe-pass"
             if runtime_ok:
+                attach_strategy_handoffs(cached_ideas, research_context, fields, operators)
                 cached["ideas"] = cached_ideas
                 cached["provenance"] = {
                     "validator": VALIDATOR_VERSION,
@@ -297,6 +308,7 @@ def generate_alpha_ideas():
                 runtime_checked.append(candidate)
             reusable_ideas = runtime_checked
         if reusable_ideas:
+            attach_strategy_handoffs(reusable_ideas, research_context, fields, operators)
             result = {
                 "ideas": reusable_ideas,
                 "rejected": [],
@@ -361,6 +373,9 @@ def generate_alpha_ideas():
                     "catalog_fingerprint": catalog_fingerprint(fields, operators),
                     "scope": "static-syntax-registry-and-synthetic-runtime-probe",
                 }
+                candidate["handoff"] = build_strategy_handoff(
+                    candidate, research_context, set(fields), set(operators)
+                )
                 accepted.append(candidate)
             except Exception as exc:
                 rejected.append({"expression": expr, "reason": str(exc)[:250]})

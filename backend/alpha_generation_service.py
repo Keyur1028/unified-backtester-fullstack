@@ -23,6 +23,12 @@ def build_generation_prompt(
             "rationale": "why the signal could work",
             "expected_behavior": "what a high/low score means",
             "risks": ["research caveat"],
+            "required_fields": ["field names referenced by the expression"],
+            "entry_rules": ["explicit signal/entry rule"],
+            "exit_rules": ["explicit exit/holding rule"],
+            "execution_rules": ["timing/price/position rule"],
+            "clarifying_questions": ["question if required details are ambiguous"],
+            "assumptions": ["explicit assumption"],
         }]
     }
     prompt = (
@@ -35,7 +41,10 @@ def build_generation_prompt(
         "\nRules: use only listed fields/operators; do not invent data, fundamentals, sentiment, intraday data, or undocumented functions. "
         "Expressions must be simple expression-language strings, not Python code. Prefer cross-sectional ranking where appropriate. "
         "Use positive integer lookback windows. Do not promise profitability. If the idea needs unavailable data or intraday timing, "
-        "state that limitation in risks and propose the closest honest daily OHLCV-only proxy. Generate distinct hypotheses, not merely different window lengths."
+        "state that limitation in risks and propose the closest honest daily OHLCV-only proxy. Generate distinct hypotheses, not merely different window lengths. "
+        "Keep entry, exit, and execution rules separate from the expression; do not claim the expression implements stops, targets, or sizing unless the engine explicitly supports them. "
+        "Return concise arrays for required_fields, entry_rules, exit_rules, execution_rules, clarifying_questions, and assumptions. "
+        "If key strategy details are missing or ambiguous, ask questions instead of inventing rules."
     )
     if research_context:
         # Keep the notebook's structured rationale/context separate from the core idea.

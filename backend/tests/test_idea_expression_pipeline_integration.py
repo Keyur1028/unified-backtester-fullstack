@@ -73,6 +73,12 @@ class IdeaExpressionPipelineIntegrationTests(unittest.TestCase):
                 "rationale": "Ranks stocks by their trailing mean price.",
                 "expected_behavior": "Higher scores indicate higher recent prices.",
                 "risks": ["Price level is not a point-in-time fundamental signal."],
+                "required_fields": ["close"],
+                "entry_rules": ["Enter the top-ranked available names."],
+                "exit_rules": ["Rebalance after the configured holding period."],
+                "execution_rules": ["Use the configured daily-bar execution timing."],
+                "clarifying_questions": [],
+                "assumptions": ["Daily OHLCV data is available."],
             }]
         })
 
@@ -87,6 +93,12 @@ class IdeaExpressionPipelineIntegrationTests(unittest.TestCase):
             self.assertEqual(first.status_code, 200, first.get_json())
             first_body = first.get_json()
             self.assertEqual(first_body["ideas"][0]["expression"], "rank(ts_mean(close, 20))")
+            handoff = first_body["ideas"][0]["handoff"]
+            self.assertEqual(handoff["assistant_status"], "ready_for_notebook2")
+            self.assertEqual(handoff["alpha_expression"], "rank(ts_mean(close, 20))")
+            self.assertEqual(handoff["required_fields"], ["close"])
+            self.assertFalse(handoff["backtest_executed"])
+            self.assertTrue(handoff["notebook2_must_revalidate"])
             self.assertEqual(first_body["cache"], {"hit": False, "strategy": "exact-match"})
             self.assertEqual(
                 first_body["ideas"][0]["runtime_validation"],
