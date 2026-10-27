@@ -11,7 +11,7 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line,
   LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
-import { getExamples, getHealth, getMeta, getExperiments, getExecutionJobs, cancelExecutionJob, runBacktest, generateAlphaIdeas } from "./api";
+import { getExamples, getHealth, getMeta, getExperiments, getExecutionJobs, getExecutionJob, cancelExecutionJob, runBacktest, generateAlphaIdeas } from "./api";
 import { demoExamples, demoAlphas, makeDemoResult } from "./mockData";
 
 const NAV = [
@@ -184,21 +184,35 @@ export default function App() {
     return matches && (statusFilter === "All statuses" || a.status === statusFilter);
   }).sort((a,b) => sortKey === "sharpe" ? (b.sharpe || -Infinity) - (a.sharpe || -Infinity) : String(b[sortKey] || "").localeCompare(String(a[sortKey] || ""))), [alphas, search, statusFilter, sortKey]);
 
-  const inspectRun = (run) => {
-    if (run.status === "succeeded" && run.result) {
-      setResult(run.result);
-      setIsDemoResult(false);
-      if (run.expression) setExpression(run.expression);
-      setPage("results");
-      setActiveTab("Overview");
-      notify("Loaded the saved result for this execution job.");
+  const inspectRun = async (run) => {
+    const jobId = run.run_id || run.experiment_id;
+    if (!jobId) {
+      notify("This history entry has no execution job ID.");
       return;
     }
-    if (run.status === "failed") {
-      notify(run.error?.message || "This execution job failed and has no result to inspect.");
-      return;
+    try {
+      const job = await getExecutionJob(jobId);
+      if (job.status === "succeeded" && job.result) {
+        setResult(job.result);
+        setIsDemoResult(false);
+        if (job.config?.expression) setExpression(job.config.expression);
+        setPage("results");
+        setActiveTab("Overview");
+        notify("Loaded the saved result for this execution job.");
+        return;
+      }
+      if (job.status === "failed") {
+        notify(job.error?.message || "This execution job failed and has no result to inspect.");
+        return;
+      }
+      notify(job.status === "cancelled"
+        ? "This execution job was cancelled."
+        : job.status === "queued" || job.status === "running"
+          ? `This execution job is still ${job.status}.`
+          : "A saved result is not available for this history entry.");
+    } catch (error) {
+      notify(error.message || "Could not load this execution job.");
     }
-    notify(run.result ? "This execution job is not complete yet." : "A saved result is not available for this history entry.");
   };
 
   const cancelRun = async (run) => {

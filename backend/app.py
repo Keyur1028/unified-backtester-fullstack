@@ -485,7 +485,14 @@ def list_execution_jobs():
                 "message": "limit must be an integer between 1 and 100.",
             }
         }), 400
-    return jsonify({"jobs": jobs, "count": len(jobs), "limit": limit}), 200
+    # Result time series can be large. Keep list/polling responses lightweight and
+    # fetch the complete immutable result from GET /api/execution-jobs/<job_id>.
+    summaries = []
+    for job in jobs:
+        summary = {key: value for key, value in job.items() if key != "result"}
+        summary["result_available"] = job.get("result") is not None
+        summaries.append(summary)
+    return jsonify({"jobs": summaries, "count": len(summaries), "limit": limit}), 200
 
 
 @app.post("/api/execution-jobs/<job_id>/cancel")
