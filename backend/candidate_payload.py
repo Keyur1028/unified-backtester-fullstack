@@ -12,6 +12,10 @@ TEXT_LIMITS = {
 }
 MAX_RISKS = 3
 MAX_RISK_LENGTH = 160
+MAX_RULES = 5
+MAX_RULE_LENGTH = 240
+LIST_TEXT_FIELDS = ("required_fields", "entry_rules", "exit_rules", "execution_rules",
+                    "clarifying_questions", "assumptions")
 
 
 def compact_generated_candidate(item: Any) -> tuple[dict[str, Any] | None, str | None]:
@@ -40,4 +44,14 @@ def compact_generated_candidate(item: Any) -> tuple[dict[str, Any] | None, str |
         ]
         if bounded_risks:
             compact["risks"] = bounded_risks
+    for key in LIST_TEXT_FIELDS:
+        value = item.get(key)
+        if isinstance(value, list):
+            bounded = [
+                entry.strip()[:MAX_RULE_LENGTH]
+                for entry in value[:MAX_RULES]
+                if isinstance(entry, str) and entry.strip()
+            ]
+            if bounded:
+                compact[key] = bounded
     return compact, None
