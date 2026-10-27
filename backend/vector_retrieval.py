@@ -53,7 +53,7 @@ def embed_text(text: str) -> tuple[list[float], str]:
         except Exception:
             pass
 
-    tokens = idea_tokens(text)
+    tokens = idea_tokens(str(text).replace("_", " "))
     vector = [0.0] * VECTOR_DIMENSIONS
     features = list(tokens)
     features.extend("bi:" + tokens[i] + "_" + tokens[i + 1] for i in range(len(tokens) - 1))
@@ -93,6 +93,17 @@ def _connect(path: str | Path) -> sqlite3.Connection:
             response_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             UNIQUE(signature, model, catalog_fingerprint, embedding_backend)
+        )"""
+    )
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS catalog_vectors (
+            catalog_content_fingerprint TEXT NOT NULL,
+            embedding_backend TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            embedding_json TEXT NOT NULL,
+            PRIMARY KEY(catalog_content_fingerprint, embedding_backend, kind, name)
         )"""
     )
     return connection
@@ -194,3 +205,75 @@ def store_idea_vector_response(
             )""",
             (model, catalog_fingerprint, max(1, int(max_entries))),
         )
+
+def _catalog_content_fingerprint(entries: list[dict[str, str]]) -> str:
+    canonical = json.dumps(
+        sorted(entries, key=lambda row: (row["kind"], row["name"], row.get("description", ""))),
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def retrieve_catalog_vectors(
+    path: str | Path,
+    query: str,
+    catalog_entries: list[dict[str, str]],
+    limit: int = 20,
+) -> list[dict[str, str]]:
+    """Vector-search the active field/operator catalog, indexing it on first use."""
+    entries = [
+        {"kind": str(row.get("kind", "")), "name": str(row.get("name", "")),
+         "description": str(row.get("description", ""))}
+        for row in catalog_entries
+        if isinstance(row, dict) and row.get("kind") and row.get("name")
+    ]
+    if not entries:
+        return []
+    query_vector, backend_id = embed_text(query)
+    if not any(query_vector):
+        return []
+    fingerprint = _catalog_content_fingerprint(entries)
+    try:
+        with _database(path) as connection:
+            existing = connection.execute(
+                """SELECT COUNT(*) FROM catalog_vectors
+                   WHERE catalog_content_fingerprint = ? AND embedding_backend = ?""",
+                (fingerprint, backend_id),
+            ).fetchone()[0]
+            if not existing:
+                for entry in entries:
+                    entry_vector, entry_backend = embed_text(
+                        entry["kind"] + ": " + entry["name"] + " " + entry["description"]
+                    )
+                    if entry_backend != backend_id:
+                        continue
+                    connection.execute(
+                        """INSERT OR REPLACE INTO catalog_vectors
+                           (catalog_content_fingerprint, embedding_backend, kind, name,
+                            description, embedding_json)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (fingerprint, backend_id, entry["kind"], entry["name"],
+                         entry["description"], json.dumps(entry_vector, separators=(",", ":"))),
+                    )
+            rows = connection.execute(
+                """SELECT kind, name, description, embedding_json FROM catalog_vectors
+                   WHERE catalog_content_fingerprint = ? AND embedding_backend = ?""",
+                (fingerprint, backend_id),
+            ).fetchall()
+    except (OSError, sqlite3.Error, ValueError):
+        return []
+
+    results = []
+    for kind, name, description, vector_json in rows:
+        try:
+            stored_vector = json.loads(vector_json)
+            score = _cosine(query_vector, [float(value) for value in stored_vector])
+            results.append({
+                "kind": str(kind), "name": str(name), "description": str(description),
+                "score": f"{score:.4f}",
+            })
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+    results.sort(key=lambda row: float(row["score"]), reverse=True)
+    return results[:max(0, int(limit))]
+

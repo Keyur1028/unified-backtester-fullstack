@@ -5,6 +5,8 @@ import math
 import re
 from typing import Any
 
+from vector_retrieval import retrieve_catalog_vectors
+
 
 _TOKEN_RE = re.compile(r"[a-z][a-z0-9_]{1,40}", re.IGNORECASE)
 _STOPWORDS = {"a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
@@ -32,9 +34,9 @@ def retrieve_catalog_context(
     fields: set[str],
     operators: set[str],
     limit_per_kind: int = 8,
+    vector_db_path: str | None = None,
 ) -> dict[str, list[dict[str, str]]]:
-    """Rank live registry entries by lexical relevance without inventing semantics."""
-    query_tokens = _tokens(query)
+    """Rank live registry entries with local vectors, falling back to lexical matching."""
     field_meta = interface.get("fields", {}) if isinstance(interface, dict) else {}
     field_kinds: dict[str, str] = {}
     if isinstance(field_meta, dict):
@@ -51,6 +53,36 @@ def retrieve_catalog_context(
                 for name, description in value.items():
                     semantics[str(name)] = str(description)
 
+    if vector_db_path:
+        catalog_entries = [
+            {"kind": "field", "name": name, "description": field_kinds.get(name, "registered field")}
+            for name in sorted(fields)
+        ]
+        catalog_entries.extend(
+            {"kind": "operator", "name": name, "description": semantics.get(name, "")}
+            for name in sorted(operators)
+        )
+        try:
+            vector_rows = retrieve_catalog_vectors(
+                vector_db_path, query, catalog_entries, limit=len(catalog_entries)
+            )
+        except Exception:
+            vector_rows = []
+        if vector_rows:
+            field_rows = [
+                {"name": row["name"], "kind": row["description"] or "registered",
+                 "score": row["score"]}
+                for row in vector_rows if row["kind"] == "field"
+            ][:max(0, int(limit_per_kind))]
+            operator_rows = [
+                {"name": row["name"],
+                 "semantics": row["description"] or "No verified semantic description in the engine contract.",
+                 "score": row["score"]}
+                for row in vector_rows if row["kind"] == "operator"
+            ][:max(0, int(limit_per_kind))]
+            return {"fields": field_rows, "operators": operator_rows}
+
+    query_tokens = _tokens(query)
     field_rows = []
     for name in sorted(fields):
         score = _score(query_tokens, name)
