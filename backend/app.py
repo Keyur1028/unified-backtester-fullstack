@@ -438,6 +438,26 @@ def create_execution_job():
     try:
         # Reject malformed configurations before they consume queue/storage capacity.
         validated_payload = engine.validate_backtest_request(payload)
+
+        fields_info = engine.describe_interface().get("fields", {})
+        fields = set()
+        for value in fields_info.values():
+            if isinstance(value, list):
+                fields.update(str(item) for item in value)
+            elif isinstance(value, dict):
+                fields.update(str(item) for item in value.keys())
+        operators = set(engine.OPERATORS) | set(engine.GROUP_OPERATORS)
+        expression_valid, expression_error = validate_expression(
+            validated_payload["expression"], fields, operators
+        )
+        if not expression_valid:
+            return jsonify({
+                "error": {
+                    "type": "ValidationError",
+                    "message": expression_error or "Expression validation failed.",
+                }
+            }), 400
+
         configuration = RunConfiguration.from_payload(validated_payload)
     except (TypeError, ValueError) as exc:
         return jsonify({
