@@ -85,6 +85,17 @@ class ExecutionJobApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
 
+    def test_non_finite_configuration_is_rejected_before_job_creation(self):
+        # Python's JSON decoder can accept NaN even though it is not valid JSON data.
+        response = self.client.post(
+            "/api/execution-jobs",
+            data='{"expression":"rank(close)","value":NaN}',
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
+        self.assertEqual(self.store.list_jobs(), [])
+
     def test_list_jobs_returns_recent_job_records(self):
         first = self.store.create_job(
             RunConfiguration.from_payload(

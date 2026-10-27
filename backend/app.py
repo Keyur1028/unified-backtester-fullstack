@@ -375,7 +375,17 @@ def create_execution_job():
     if not isinstance(payload, dict):
         return jsonify({"error": {"type": "ValidationError", "message": "Request body must be a JSON object"}}), 400
 
-    job = JOB_STORE.create_job(RunConfiguration.from_payload(payload))
+    try:
+        configuration = RunConfiguration.from_payload(payload)
+    except (TypeError, ValueError):
+        return jsonify({
+            "error": {
+                "type": "ValidationError",
+                "message": "Run configuration must contain only JSON-safe values.",
+            }
+        }), 400
+
+    job = JOB_STORE.create_job(configuration)
     JOB_STORE.transition(job["job_id"], ExecutionJobStatus.RUNNING)
     started = time.perf_counter()
     try:
