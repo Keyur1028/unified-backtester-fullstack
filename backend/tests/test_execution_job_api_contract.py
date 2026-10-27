@@ -86,13 +86,13 @@ class ExecutionJobApiContractTests(unittest.TestCase):
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(listed.get_json()["count"], 1)
 
-    def test_backtest_validation_failure_is_persisted_as_failed_job(self):
+    def test_runtime_backtest_failure_is_persisted_as_failed_job(self):
         self.mock_backtest.return_value = {
             "status": "error",
             "error": {"type": "ValidationError", "message": "Expression is invalid."},
         }
         response = self.client.post(
-            "/api/execution-jobs", json={"expression": "invalid(", "universe": "NIFTY50", "start": "2022-01-01", "end": "2023-01-01"}
+            "/api/execution-jobs", json={"expression": "rank(close)", "universe": "NIFTY50", "start": "2022-01-01", "end": "2023-01-01"}
         )
         job = response.get_json()
         completed = backend_app.execute_execution_job(job["job_id"])
