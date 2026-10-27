@@ -121,7 +121,10 @@ def _compact_index_entry(entry: Any) -> dict[str, Any] | None:
     if not isinstance(entry, dict) or not isinstance(entry.get("tokens"), list):
         return None
     tokens = [str(token)[:41] for token in entry["tokens"][:MAX_TOKENS_PER_IDEA]]
-    safety_tokens = [str(token)[:41] for token in entry.get("safety_tokens", tokens)[:MAX_TOKENS_PER_IDEA]]
+    raw_safety_tokens = entry.get("safety_tokens", tokens)
+    if not isinstance(raw_safety_tokens, list):
+        raw_safety_tokens = tokens
+    safety_tokens = [str(token)[:41] for token in raw_safety_tokens[:MAX_TOKENS_PER_IDEA]]
     if not tokens:
         return None
     return {
