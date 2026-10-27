@@ -18,6 +18,7 @@ from similarity_retrieval import idea_tokens, retrieve_similar, store_idea_respo
 from idea_similarity_safety import has_directional_conflict
 from retrieval_context import format_retrieval_context
 from candidate_payload import compact_generated_candidate
+from candidate_runtime_validation import validate_candidate_runtime
 from alpha_generation_service import build_generation_prompt, generate_candidates
 from backtest_service import run_backtest
 from execution_job_contract import ExecutionJobStatus, RunConfiguration
@@ -192,9 +193,23 @@ def generate_alpha_ideas():
     if cached is not None:
         cached_ideas = valid_cached_ideas(cached.get("ideas"), fields, operators)
         if cached_ideas:
-            cached["ideas"] = cached_ideas
-            cached["cache"] = {"hit": True, "strategy": "exact-match"}
-            return jsonify(cached)
+            runtime_ok = True
+            for candidate in cached_ideas:
+                passed, _reason = validate_candidate_runtime(engine, candidate["expression"], fields)
+                if not passed:
+                    runtime_ok = False
+                    break
+                candidate["runtime_validation"] = "synthetic-data-probe-pass"
+            if runtime_ok:
+                cached["ideas"] = cached_ideas
+                cached["provenance"] = {
+                    "validator": VALIDATOR_VERSION,
+                    "catalog_fingerprint": catalog_fingerprint(fields, operators),
+                    "scope": "static-syntax-registry-and-synthetic-runtime-probe",
+                }
+                cached["cache"] = {"hit": True, "strategy": "exact-match"}
+                return jsonify(cached)
+            app.logger.warning("Ignoring exact-match alpha cache entry that failed runtime preflight")
         app.logger.warning("Ignoring invalid exact-match alpha cache entry")
 
     catalog_id = catalog_fingerprint(fields, operators)
@@ -218,6 +233,16 @@ def generate_alpha_ideas():
     if near_duplicate is not None:
         reusable_ideas = valid_cached_ideas(near_duplicate["ideas"], fields, operators)
         if reusable_ideas:
+            runtime_checked = []
+            for candidate in reusable_ideas:
+                passed, _reason = validate_candidate_runtime(engine, candidate["expression"], fields)
+                if not passed:
+                    runtime_checked = []
+                    break
+                candidate["runtime_validation"] = "synthetic-data-probe-pass"
+                runtime_checked.append(candidate)
+            reusable_ideas = runtime_checked
+        if reusable_ideas:
             result = {
                 "ideas": reusable_ideas,
                 "rejected": [],
@@ -225,7 +250,7 @@ def generate_alpha_ideas():
                 "provenance": {
                     "validator": VALIDATOR_VERSION,
                     "catalog_fingerprint": catalog_id,
-                    "scope": "static-syntax-and-registry-only",
+                    "scope": "static-syntax-registry-and-synthetic-runtime-probe",
                 },
                 "note": (
                     "Reused candidates from a highly similar prior prompt to avoid a model call. "
@@ -271,12 +296,16 @@ def generate_alpha_ideas():
                 valid, reason = validate_expression(expr, fields, operators)
                 if not valid:
                     raise ValueError(reason or "Expression validation failed")
+                runtime_ok, runtime_reason = validate_candidate_runtime(engine, expr, fields)
+                if not runtime_ok:
+                    raise ValueError("Synthetic runtime probe failed: " + (runtime_reason or "unknown error"))
                 candidate["id"] = "idea-" + str(len(accepted) + 1)
                 candidate["validation"] = "syntax-and-registry-pass"
+                candidate["runtime_validation"] = "synthetic-data-probe-pass"
                 candidate["provenance"] = {
                     "validator": VALIDATOR_VERSION,
                     "catalog_fingerprint": catalog_fingerprint(fields, operators),
-                    "scope": "static-syntax-and-registry-only",
+                    "scope": "static-syntax-registry-and-synthetic-runtime-probe",
                 }
                 accepted.append(candidate)
             except Exception as exc:
@@ -286,8 +315,8 @@ def generate_alpha_ideas():
         result = {"ideas": accepted, "rejected": rejected, "model": model,
                   "provenance": {"validator": VALIDATOR_VERSION,
                                  "catalog_fingerprint": catalog_fingerprint(fields, operators),
-                                 "scope": "static-syntax-and-registry-only"},
-                  "note": "Candidates passed syntax and registry checks only. Run each candidate to verify runtime compatibility and evaluate out-of-sample robustness."}
+                                 "scope": "static-syntax-registry-and-synthetic-runtime-probe"},
+                  "note": "Candidates passed syntax, registry, and a deterministic synthetic-data runtime probe. Real-data compatibility, data coverage, and out-of-sample robustness still require an actual backtest."}
         result["retrieval"] = {
             "strategy": "local-lexical-cosine",
             "matches_used": len(similar_ideas),
