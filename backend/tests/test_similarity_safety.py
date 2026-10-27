@@ -35,7 +35,7 @@ class SimilaritySafetyTests(unittest.TestCase):
         ))
 
     def test_conflicting_near_duplicate_falls_through_to_gemini(self):
-        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
+        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}, "universes": {"NIFTY50": "static"}, "portfolio_types": ["LONG_ONLY", "LONG_SHORT"], "weighting_schemes": ["EQUAL_WEIGHT", "SIGNAL_WEIGHTED"]}
         idea = "Find bullish momentum using price trend and recent trading volume"
         prior_ideas = [{
             "id": "idea-1",
@@ -68,7 +68,7 @@ class SimilaritySafetyTests(unittest.TestCase):
 
     @patch.object(api_app, "validate_candidate_runtime", return_value=(True, None))
     def test_same_direction_near_duplicate_can_still_be_reused(self, _mock_runtime):
-        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
+        interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}, "universes": {"NIFTY50": "static"}, "portfolio_types": ["LONG_ONLY", "LONG_SHORT"], "weighting_schemes": ["EQUAL_WEIGHT", "SIGNAL_WEIGHTED"]}
         idea = "Find bullish momentum using price trend and recent trading volume"
         prior_ideas = [{
             "id": "idea-1",
