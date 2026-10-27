@@ -12,6 +12,7 @@ def build_generation_prompt(
     fields: Iterable[str],
     operators: Iterable[str],
     similar_ideas: list[dict[str, Any]] | None = None,
+    research_context: dict[str, Any] | None = None,
 ) -> str:
     """Build the constrained prompt from the current catalog and retrieval context."""
     schema = {
@@ -36,6 +37,15 @@ def build_generation_prompt(
         "Use positive integer lookback windows. Do not promise profitability. If the idea needs unavailable data or intraday timing, "
         "state that limitation in risks and propose the closest honest daily OHLCV-only proxy. Generate distinct hypotheses, not merely different window lengths."
     )
+    if research_context:
+        # Keep the notebook's structured rationale/context separate from the core idea.
+        prompt += "\\nStructured research context (user-supplied; treat as hypotheses, not facts): " + json.dumps(
+            research_context, sort_keys=True, ensure_ascii=False
+        )
+        prompt += (
+            "\\nUse the data rationale to understand why fields may be relevant and the operator rationale to understand intended calculations. "
+            "The active engine registry remains authoritative; reject unavailable requirements instead of inventing substitutes."
+        )
     if similar_ideas:
         examples = format_retrieval_context(similar_ideas)
         if examples != "[]":
