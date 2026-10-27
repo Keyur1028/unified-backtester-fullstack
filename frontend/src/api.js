@@ -19,6 +19,7 @@ export const getHealth = () => apiRequest("/health");
 export const getMeta = () => apiRequest("/meta");
 export const getExamples = () => apiRequest("/examples");
 export const getExperiments = () => apiRequest("/experiments");
+export const getExecutionJobs = (limit = 30) => apiRequest(`/execution-jobs?limit=${encodeURIComponent(limit)}`);
 
 // Keep the legacy endpoint available for compatibility and direct API comparisons.
 export const runLegacyBacktest = (payload) => apiRequest("/backtest", {
