@@ -57,12 +57,17 @@ def invoke_json_generation(
     retries = _positive_int("ALPHA_MODEL_RETRIES", 1, 1)
     if client_factory is None:
         from google import genai
-        from google.genai import types
 
-        client_factory = lambda **kwargs: genai.Client(
-            api_key=kwargs["api_key"],
-            http_options=types.HttpOptions(timeout=timeout_ms),
-        )
+        try:
+            from google.genai import types
+            client_factory = lambda **kwargs: genai.Client(
+                api_key=kwargs["api_key"],
+                http_options=types.HttpOptions(timeout=timeout_ms),
+            )
+        except ImportError:
+            # Compatibility path for older SDKs. The official google-genai
+            # dependency supports HttpOptions; production should keep it current.
+            client_factory = lambda **kwargs: genai.Client(api_key=kwargs["api_key"])
 
     client = client_factory(api_key=api_key)
     for attempt in range(retries + 1):
