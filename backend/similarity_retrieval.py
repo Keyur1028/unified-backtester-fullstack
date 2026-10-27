@@ -121,11 +121,16 @@ def _compact_index_entry(entry: Any) -> dict[str, Any] | None:
     if not isinstance(entry, dict) or not isinstance(entry.get("tokens"), list):
         return None
     tokens = [str(token)[:41] for token in entry["tokens"][:MAX_TOKENS_PER_IDEA]]
+    raw_safety_tokens = entry.get("safety_tokens", tokens)
+    if not isinstance(raw_safety_tokens, list):
+        raw_safety_tokens = tokens
+    safety_tokens = [str(token)[:41] for token in raw_safety_tokens[:MAX_TOKENS_PER_IDEA]]
     if not tokens:
         return None
     return {
         "token_signature": str(entry.get("token_signature", ""))[:64],
         "tokens": tokens,
+        "safety_tokens": safety_tokens,
         "model": str(entry.get("model", ""))[:100],
         "catalog_fingerprint": str(entry.get("catalog_fingerprint", ""))[:128],
         "response": _compact_response(entry.get("response")),
@@ -170,7 +175,7 @@ def retrieve_similar(
         if score >= min_similarity:
             results.append({
                 "similarity": round(score, 4),
-                "matched_tokens": stored_tokens,
+                "matched_tokens": entry["safety_tokens"],
                 "ideas": entry["response"]["ideas"],
             })
     results.sort(key=lambda row: row["similarity"], reverse=True)
@@ -184,9 +189,11 @@ def store_idea_response(
     catalog_fingerprint: str,
     response: dict[str, Any],
     max_entries: int = DEFAULT_MAX_ENTRIES,
+    safety_text: str | None = None,
 ) -> None:
     """Persist bounded candidate metadata and tokens, never the raw prompt."""
     tokens = idea_tokens(idea)
+    safety_tokens = idea_tokens(safety_text if safety_text is not None else idea)
     if not tokens:
         return
     destination = Path(path)
@@ -207,7 +214,7 @@ def store_idea_response(
         pass
 
     # Replace duplicate token signatures within the same catalog/model scope.
-    signature = hashlib.sha256(" ".join(tokens).encode("utf-8")).hexdigest()
+    signature = hashlib.sha256((" ".join(tokens) + "|safety|" + " ".join(safety_tokens)).encode("utf-8")).hexdigest()
     entries = [
         row for row in entries
         if not (row.get("token_signature") == signature
@@ -217,6 +224,7 @@ def store_idea_response(
     entries.append({
         "token_signature": signature,
         "tokens": tokens,
+        "safety_tokens": safety_tokens,
         "model": model,
         "catalog_fingerprint": catalog_fingerprint,
         "response": _compact_response(response),

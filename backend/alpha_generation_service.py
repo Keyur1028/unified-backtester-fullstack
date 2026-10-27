@@ -13,6 +13,7 @@ def build_generation_prompt(
     operators: Iterable[str],
     similar_ideas: list[dict[str, Any]] | None = None,
     research_context: dict[str, Any] | None = None,
+    catalog_context: dict[str, Any] | None = None,
 ) -> str:
     """Build the constrained prompt from the current catalog and retrieval context."""
     schema = {
@@ -54,6 +55,11 @@ def build_generation_prompt(
         prompt += (
             "\nUse the data rationale to understand why fields may be relevant and the operator rationale to understand intended calculations. "
             "The active engine registry remains authoritative; reject unavailable requirements instead of inventing substitutes."
+        )
+    if catalog_context:
+        prompt += (
+            "\nRelevant catalog entries retrieved from the active engine contract (not a substitute for the full registry): "
+            + json.dumps(catalog_context, ensure_ascii=False, sort_keys=True)
         )
     if similar_ideas:
         examples = format_retrieval_context(similar_ideas)

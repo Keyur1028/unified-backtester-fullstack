@@ -44,6 +44,22 @@ class SimilarityRetrievalTests(unittest.TestCase):
             self.assertEqual(retrieve_similar(path, "momentum and volume trend", "model-b", "catalog-a"), [])
             self.assertEqual(retrieve_similar(path, "momentum and volume trend", "model-a", "catalog-b"), [])
 
+    def test_safety_tokens_preserve_original_direction_when_summary_is_used(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "index.json"
+            store_idea_response(
+                path,
+                "momentum price trend",
+                "model-a",
+                "catalog-a",
+                {"ideas": [{"expression": "rank(close)"}]},
+                safety_text="short bearish reversal when momentum weakens",
+            )
+            results = retrieve_similar(path, "momentum price trend", "model-a", "catalog-a", min_similarity=0.1)
+        self.assertEqual(len(results), 1)
+        self.assertIn("bearish", results[0]["matched_tokens"])
+        self.assertIn("reversal", results[0]["matched_tokens"])
+
     def test_raw_prompt_is_not_persisted(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "index.json"
