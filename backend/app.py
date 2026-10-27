@@ -15,6 +15,7 @@ import alpha_engine as engine
 from idea_cache import make_cache_key, read_cached_response, write_cached_response
 from candidate_validation import VALIDATOR_VERSION, catalog_fingerprint, validate_expression
 from similarity_retrieval import idea_tokens, retrieve_similar, store_idea_response
+from vector_retrieval import retrieve_similar_vectors, store_idea_vector_response
 from idea_similarity_safety import has_directional_conflict
 from retrieval_context import format_retrieval_context
 from candidate_payload import compact_generated_candidate
@@ -286,11 +287,30 @@ def generate_alpha_ideas():
         retrieval_brief, capability_interface, fields, operators, limit_per_kind=8
     )
     retrieval_path = STORE / "idea_retrieval_index.json"
-    similar_ideas = retrieve_similar(
+    lexical_matches = retrieve_similar(
         retrieval_path, retrieval_brief, model, catalog_id, limit=3, min_similarity=0.25
     )
+    vector_path = STORE / "idea_vectors.sqlite3"
+    vector_matches = retrieve_similar_vectors(
+        vector_path, retrieval_brief, model, catalog_id,
+        limit=3, min_similarity=0.25, safety_text=research_brief,
+    )
+    # Merge duplicate candidate sets returned by both retrieval strategies.
+    merged_matches = {}
+    for row in lexical_matches + vector_matches:
+        expression_key = tuple(
+            str(item.get("expression", "")) for item in row.get("ideas", []) if isinstance(item, dict)
+        )
+        if not expression_key:
+            continue
+        previous = merged_matches.get(expression_key)
+        if previous is None or row.get("similarity", 0) > previous.get("similarity", 0):
+            merged_matches[expression_key] = row
+    similar_ideas = sorted(
+        merged_matches.values(), key=lambda row: row.get("similarity", 0), reverse=True
+    )[:3]
 
-    # Reuse a prior validated candidate set only for a very close lexical match.
+    # Reuse a prior validated candidate set only for a very close lexical/vector match.
     # Require enough query terms to reduce false positives from short generic ideas.
     query_tokens = idea_tokens(idea)
     safety_query_tokens = idea_tokens(research_brief)
@@ -333,8 +353,9 @@ def generate_alpha_ideas():
                     "before interpreting their research value."
                 ),
                 "retrieval": {
-                    "strategy": "local-lexical-cosine",
+                    "strategy": "local-hybrid-lexical-and-vector",
                     "matches_used": 1,
+                    "vector_matches_used": len(vector_matches),
                     "similarity": near_duplicate["similarity"],
                     "raw_prompt_persisted": False,
                     "brief_mode": retrieval_summary["mode"],
@@ -400,6 +421,7 @@ def generate_alpha_ideas():
         result["retrieval"] = {
             "strategy": "local-lexical-cosine",
             "matches_used": len(similar_ideas),
+            "vector_matches_used": len(vector_matches),
             "raw_prompt_persisted": False,
             "brief_mode": retrieval_summary["mode"],
             "catalog_fields_used": [item["name"] for item in catalog_context["fields"]],
@@ -413,6 +435,12 @@ def generate_alpha_ideas():
             store_idea_response(retrieval_path, retrieval_brief, model, catalog_id, result, safety_text=research_brief)
         except OSError:
             app.logger.warning("Could not persist idea retrieval index", exc_info=True)
+        try:
+            store_idea_vector_response(
+                vector_path, retrieval_brief, model, catalog_id, result, safety_text=research_brief
+            )
+        except (OSError, ValueError):
+            app.logger.warning("Could not persist local idea vector index", exc_info=True)
         result["cache"] = {"hit": False, "strategy": "exact-match"}
         return jsonify(result)
     except ImportError:
