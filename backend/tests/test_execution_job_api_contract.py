@@ -49,8 +49,8 @@ class ExecutionJobApiContractTests(unittest.TestCase):
         payload = {
             "expression": "rank(close)",
             "universe": "NIFTY50",
-            "start_date": "2024-01-01",
-            "end_date": "2024-03-01",
+            "start": "2024-01-01",
+            "end": "2024-03-01",
         }
         response = self.client.post("/api/execution-jobs", json=payload)
         self.assertEqual(response.status_code, 202)
@@ -72,7 +72,7 @@ class ExecutionJobApiContractTests(unittest.TestCase):
         }
         response = self.client.post(
             "/api/execution-jobs",
-            json={"expression": "rank(close)", "universe": "NIFTY50"},
+            json={"expression": "rank(close)", "universe": "NIFTY50", "start": "2022-01-01", "end": "2023-01-01"},
         )
         job = response.get_json()
         completed = backend_app.execute_execution_job(job["job_id"])
@@ -92,7 +92,7 @@ class ExecutionJobApiContractTests(unittest.TestCase):
             "error": {"type": "ValidationError", "message": "Expression is invalid."},
         }
         response = self.client.post(
-            "/api/execution-jobs", json={"expression": "invalid("}
+            "/api/execution-jobs", json={"expression": "invalid(", "universe": "NIFTY50", "start": "2022-01-01", "end": "2023-01-01"}
         )
         job = response.get_json()
         completed = backend_app.execute_execution_job(job["job_id"])

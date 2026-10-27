@@ -436,12 +436,14 @@ def create_execution_job():
         return jsonify({"error": {"type": "ValidationError", "message": "Request body must be a JSON object"}}), 400
 
     try:
-        configuration = RunConfiguration.from_payload(payload)
-    except (TypeError, ValueError):
+        # Reject malformed configurations before they consume queue/storage capacity.
+        validated_payload = engine.validate_backtest_request(payload)
+        configuration = RunConfiguration.from_payload(validated_payload)
+    except (TypeError, ValueError) as exc:
         return jsonify({
             "error": {
                 "type": "ValidationError",
-                "message": "Run configuration must contain only JSON-safe values.",
+                "message": str(exc)[:500] or "Run configuration is invalid.",
             }
         }), 400
 

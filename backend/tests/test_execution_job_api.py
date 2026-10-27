@@ -49,7 +49,7 @@ class ExecutionJobApiTests(unittest.TestCase):
             with patch.object(api_app.engine.TRACKER, "save"):
                 response = self.client.post(
                     "/api/execution-jobs",
-                    json={"expression": "rank(close)", "universe": "NIFTY50"},
+                    json={"expression": "rank(close)", "universe": "NIFTY50", "start": "2022-01-01", "end": "2023-01-01"},
                 )
                 self.assertEqual(response.status_code, 202)
                 queued = response.get_json()
@@ -74,7 +74,7 @@ class ExecutionJobApiTests(unittest.TestCase):
         with patch.object(api_app, "run_backtest", return_value=envelope):
             with patch.object(api_app.engine.TRACKER, "save"):
                 response = self.client.post(
-                    "/api/execution-jobs", json={"expression": "unsupported(close)"}
+                    "/api/execution-jobs", json={"expression": "unsupported(close)", "universe": "NIFTY50", "start": "2022-01-01", "end": "2023-01-01"}
                 )
                 self.assertEqual(response.status_code, 202)
                 queued = response.get_json()
@@ -91,9 +91,31 @@ class ExecutionJobApiTests(unittest.TestCase):
     def test_non_finite_configuration_is_rejected_before_job_creation(self):
         response = self.client.post(
             "/api/execution-jobs",
-            data='{"expression":"rank(close)","value":NaN}',
+            data='{"expression":"rank(close)","universe":"NIFTY50","start":"2022-01-01","end":"2023-01-01","transaction_cost_bps":NaN}',
             content_type="application/json",
         )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
+        self.assertEqual(self.store.list_jobs(), [])
+
+    def test_missing_required_backtest_fields_are_rejected_before_job_creation(self):
+        response = self.client.post(
+            "/api/execution-jobs",
+            json={"expression": "rank(close)", "universe": "NIFTY50"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
+        self.assertIn("start", response.get_json()["error"]["message"])
+        self.assertEqual(self.store.list_jobs(), [])
+
+    def test_invalid_backtest_parameters_are_rejected_before_job_creation(self):
+        payload = {
+            "expression": "rank(close)",
+            "universe": "NOT_A_UNIVERSE",
+            "start": "2022-01-01",
+            "end": "2023-01-01",
+        }
+        response = self.client.post("/api/execution-jobs", json=payload)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
         self.assertEqual(self.store.list_jobs(), [])
