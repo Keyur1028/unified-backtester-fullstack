@@ -4,6 +4,7 @@ These tests mock the engine boundary and never call Yahoo Finance or Gemini.
 Run from the repository root with:
     python -m unittest discover -s backend/tests -v
 """
+import json
 import os
 import sys
 import unittest
