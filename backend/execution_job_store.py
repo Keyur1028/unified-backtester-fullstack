@@ -161,6 +161,44 @@ class SQLiteExecutionJobStore:
             ).fetchall()
         return [self._decode(row) for row in rows]
 
+    def heartbeat_job(self, job_id: str) -> bool:
+        """Refresh the liveness timestamp for a currently running job."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE execution_jobs SET updated_at = ? "
+                "WHERE job_id = ? AND status = ?",
+                (_now(), job_id, ExecutionJobStatus.RUNNING.value),
+            )
+            return cursor.rowcount == 1
+
+    def fail_stale_running_jobs(self, stale_before: str) -> int:
+        """Fail running jobs whose liveness timestamp predates the cutoff.
+
+        The conditional update is atomic: a concurrent heartbeat refreshes the
+        timestamp and prevents the stale-job update from matching.
+        """
+        if not isinstance(stale_before, str) or not stale_before.strip():
+            raise ValueError("stale_before must be a non-empty ISO timestamp.")
+        timestamp = _now()
+        error_json = _json_object({
+            "type": "WorkerLeaseExpired",
+            "message": "The worker stopped reporting progress; this job was marked failed. Submit it again to retry.",
+        }, "error")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                "UPDATE execution_jobs SET status = ?, error_json = ?, "
+                "result_json = NULL, updated_at = ? "
+                "WHERE status = ? AND updated_at < ?",
+                (
+                    ExecutionJobStatus.FAILED.value, error_json, timestamp,
+                    ExecutionJobStatus.RUNNING.value, stale_before,
+                ),
+            )
+            count = cursor.rowcount
+            connection.commit()
+        return count
+
     def transition(
         self,
         job_id: str,
