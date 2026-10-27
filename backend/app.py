@@ -17,6 +17,7 @@ from candidate_validation import VALIDATOR_VERSION, catalog_fingerprint, validat
 from similarity_retrieval import idea_tokens, retrieve_similar, store_idea_response
 from idea_similarity_safety import has_directional_conflict
 from retrieval_context import format_retrieval_context
+from candidate_payload import compact_generated_candidate
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
@@ -274,23 +275,28 @@ def generate_alpha_ideas():
         ideas = raw.get("ideas", []) if isinstance(raw, dict) else []
         accepted, rejected = [], []
         for item in ideas[:5]:
-            if not isinstance(item, dict): continue
-            expr = str(item.get("expression", "")).strip()
+            candidate, compact_error = compact_generated_candidate(item)
+            if candidate is None:
+                rejected.append({
+                    "expression": str(item.get("expression", ""))[:1000] if isinstance(item, dict) else "",
+                    "reason": compact_error or "Invalid candidate payload",
+                })
+                continue
+            expr = candidate["expression"]
             try:
                 valid, reason = validate_expression(expr, fields, operators)
                 if not valid:
                     raise ValueError(reason or "Expression validation failed")
-                item["expression"] = expr
-                item["id"] = "idea-" + str(len(accepted) + 1)
-                item["validation"] = "syntax-and-registry-pass"
-                item["provenance"] = {
+                candidate["id"] = "idea-" + str(len(accepted) + 1)
+                candidate["validation"] = "syntax-and-registry-pass"
+                candidate["provenance"] = {
                     "validator": VALIDATOR_VERSION,
                     "catalog_fingerprint": catalog_fingerprint(fields, operators),
                     "scope": "static-syntax-and-registry-only",
                 }
-                accepted.append(item)
+                accepted.append(candidate)
             except Exception as exc:
-                rejected.append({"expression": expr, "reason": str(exc)})
+                rejected.append({"expression": expr, "reason": str(exc)[:250]})
         if not accepted:
             return jsonify({"error": {"type": "GenerationValidationError", "message": "Gemini returned no candidates that passed engine field/operator checks. Try a more specific OHLCV-based prompt.", "rejected": rejected}}), 422
         result = {"ideas": accepted, "rejected": rejected, "model": model,
