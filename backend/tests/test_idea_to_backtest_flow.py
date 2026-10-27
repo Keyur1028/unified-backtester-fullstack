@@ -37,9 +37,15 @@ class IdeaToBacktestFlowTests(unittest.TestCase):
         self.job_store_patch.start()
         self.env_patch = patch.dict(
             os.environ,
-            {"GEMINI_API_KEY": "offline-test-key", "GEMINI_MODEL": "test-model"},
+            {"GEMINI_API_KEY": "offline-test-key", "GEMINI_MODEL": "test-model",
+             "SUPABASE_AUTH_REQUIRED": "true", "SUPABASE_URL": "https://example.supabase.co"},
         )
         self.env_patch.start()
+        self.auth_patch = patch(
+            "authentication.verify_supabase_access_token",
+            return_value={"sub": "integration-user", "aud": "authenticated"},
+        )
+        self.auth_patch.start()
         self.runtime_patch = patch.object(
             api_app, "validate_candidate_runtime", return_value=(True, None)
         )
@@ -77,7 +83,7 @@ class IdeaToBacktestFlowTests(unittest.TestCase):
 
     def tearDown(self):
         for active_patch in (
-            self.runtime_patch, self.env_patch, self.job_store_patch, self.store_patch
+            self.runtime_patch, self.auth_patch, self.env_patch, self.job_store_patch, self.store_patch
         ):
             active_patch.stop()
         self.temp_dir.cleanup()
@@ -104,6 +110,7 @@ class IdeaToBacktestFlowTests(unittest.TestCase):
             with patch.object(api_app.engine.TRACKER, "save"):
                 idea_response = self.client.post(
                     "/api/generate-alpha",
+                    headers={"Authorization": "Bearer integration-token"},
                     json={
                         "idea": "Rank stocks by their cross-sectional price strength.",
                         "cluster": "D1",
@@ -137,6 +144,7 @@ class IdeaToBacktestFlowTests(unittest.TestCase):
                 with patch.object(api_app, "run_backtest", side_effect=run_with_synthetic_market_data):
                     queued_response = self.client.post(
                         "/api/execution-jobs/from-handoff",
+                        headers={"Authorization": "Bearer integration-token"},
                         json={
                             "handoff": handoff,
                             "start": "2020-07-01",
@@ -158,7 +166,10 @@ class IdeaToBacktestFlowTests(unittest.TestCase):
         self.assertTrue(completed["result"]["series"]["dates"])
         self.assertIn("sharpe_net", completed["result"]["summary"])
 
-        fetched = self.client.get(f"/api/execution-jobs/{queued['job_id']}")
+        fetched = self.client.get(
+            f"/api/execution-jobs/{queued['job_id']}",
+            headers={"Authorization": "Bearer integration-token"},
+        )
         self.assertEqual(fetched.status_code, 200, fetched.get_json())
         self.assertEqual(fetched.get_json(), completed)
 
