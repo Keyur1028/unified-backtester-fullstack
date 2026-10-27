@@ -32,6 +32,7 @@ from backtest_service import run_backtest
 from execution_job_contract import ExecutionJobStatus, RunConfiguration
 from execution_job_store import ExecutionJobNotFoundError, InvalidJobTransitionError
 from execution_job_store_factory import create_execution_job_store
+from authentication import register_auth_middleware
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
@@ -49,6 +50,7 @@ except Exception as exc:
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 256 * 1024
 CORS(app, resources={r"/api/*": {"origins": os.getenv("CORS_ORIGINS", "*").split(",")}})
+register_auth_middleware(app)
 
 def num(v):
     try:
