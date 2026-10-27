@@ -181,8 +181,9 @@ class ApiContractTests(unittest.TestCase):
                             with patch.object(api_app, "retrieve_similar", return_value=[
                                 {"similarity": similarity, "ideas": prior_ideas}
                             ]):
-                                with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": "test-model"}):
-                                    return self.client.post("/api/generate-alpha", json={"idea": idea})
+                                with patch.object(api_app, "validate_candidate_runtime", return_value=(True, None)):
+                                    with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": "test-model"}):
+                                        return self.client.post("/api/generate-alpha", json={"idea": idea})
 
     def test_similarity_exactly_at_threshold_is_reused(self):
         response = self._generate_with_similarity(
