@@ -19,6 +19,8 @@ from idea_similarity_safety import has_directional_conflict
 from retrieval_context import format_retrieval_context
 from candidate_payload import compact_generated_candidate
 from strategy_handoff import build_strategy_handoff
+from local_summarizer import summarize_for_retrieval
+from catalog_retrieval import retrieve_catalog_context
 from candidate_runtime_validation import validate_candidate_runtime
 from research_context import validate_research_context
 from alpha_generation_service import build_generation_prompt, generate_candidates
@@ -278,14 +280,19 @@ def generate_alpha_ideas():
         app.logger.warning("Ignoring invalid exact-match alpha cache entry")
 
     catalog_id = catalog_fingerprint(fields, operators)
+    retrieval_summary = summarize_for_retrieval(research_brief)
+    retrieval_brief = retrieval_summary["summary"]
+    catalog_context = retrieve_catalog_context(
+        retrieval_brief, capability_interface, fields, operators, limit_per_kind=8
+    )
     retrieval_path = STORE / "idea_retrieval_index.json"
     similar_ideas = retrieve_similar(
-        retrieval_path, research_brief, model, catalog_id, limit=3, min_similarity=0.25
+        retrieval_path, retrieval_brief, model, catalog_id, limit=3, min_similarity=0.25
     )
 
     # Reuse a prior validated candidate set only for a very close lexical match.
     # Require enough query terms to reduce false positives from short generic ideas.
-    query_tokens = idea_tokens(idea)
+    query_tokens = idea_tokens(retrieval_brief)
     near_duplicate = next(
         (
             row for row in similar_ideas
@@ -329,6 +336,9 @@ def generate_alpha_ideas():
                     "matches_used": 1,
                     "similarity": near_duplicate["similarity"],
                     "raw_prompt_persisted": False,
+                    "brief_mode": retrieval_summary["mode"],
+                    "catalog_fields_used": [item["name"] for item in catalog_context["fields"]],
+                    "catalog_operators_used": [item["name"] for item in catalog_context["operators"]],
                 },
                 "cache": {"hit": True, "strategy": "similarity"},
             }
@@ -342,7 +352,7 @@ def generate_alpha_ideas():
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return jsonify({"error": {"type": "ConfigurationError", "message": "Gemini is not configured. Add GEMINI_API_KEY to backend/.env and restart the backend."}}), 503
-    prompt = build_generation_prompt(idea, fields, operators, similar_ideas, research_context=research_context)
+    prompt = build_generation_prompt(idea, fields, operators, similar_ideas, research_context=research_context, catalog_context=catalog_context)
     try:
         response_text = generate_candidates(api_key, model, prompt)
         raw = json.loads(response_text)
@@ -390,13 +400,16 @@ def generate_alpha_ideas():
             "strategy": "local-lexical-cosine",
             "matches_used": len(similar_ideas),
             "raw_prompt_persisted": False,
+            "brief_mode": retrieval_summary["mode"],
+            "catalog_fields_used": [item["name"] for item in catalog_context["fields"]],
+            "catalog_operators_used": [item["name"] for item in catalog_context["operators"]],
         }
         try:
             write_cached_response(cache_path, cache_key, result)
         except OSError:
             app.logger.warning("Could not persist idea-generation cache", exc_info=True)
         try:
-            store_idea_response(retrieval_path, idea, model, catalog_id, result)
+            store_idea_response(retrieval_path, retrieval_brief, model, catalog_id, result)
         except OSError:
             app.logger.warning("Could not persist idea retrieval index", exc_info=True)
         result["cache"] = {"hit": False, "strategy": "exact-match"}
