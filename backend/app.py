@@ -25,6 +25,7 @@ from catalog_retrieval import retrieve_catalog_context
 from candidate_runtime_validation import validate_candidate_runtime
 from research_context import validate_research_context
 from alpha_generation_service import build_generation_prompt, generate_candidates
+from generation_gateway import MAX_PROMPT_CHARS
 from model_response_contract import ModelResponseContractError, parse_idea_candidates
 from rate_limit import check_rate_limit
 from backtest_service import run_backtest
@@ -400,7 +401,42 @@ def generate_alpha_ideas():
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return jsonify({"error": {"type": "ConfigurationError", "message": "Gemini is not configured. Add GEMINI_API_KEY to backend/.env and restart the backend."}}), 503
+
     prompt = build_generation_prompt(idea, fields, operators, similar_ideas, research_context=research_context, catalog_context=catalog_context)
+    if len(prompt) > MAX_PROMPT_CHARS:
+        return jsonify({"error": {"type": "PromptTooLarge", "message": "The assembled research prompt exceeds the configured size limit. Shorten the idea or structured context."}}), 413
+
+    # Count only provider-bound cache misses, not exact/similarity cache hits.
+    # This shared SQLite budget is a cost guard across workers using the same DB.
+    try:
+        daily_limit_raw = os.getenv("ALPHA_MODEL_DAILY_CALL_LIMIT", "100")
+        try:
+            daily_limit = int(daily_limit_raw)
+        except (TypeError, ValueError):
+            daily_limit = 100
+        if not 1 <= daily_limit <= 100_000:
+            daily_limit = 100
+        budget_allowed, budget_retry_after = check_rate_limit(
+            "global-model-provider-budget",
+            database_path=STORE / "api_rate_limits.sqlite3",
+            limit=daily_limit,
+            window_seconds=86400,
+        )
+    except Exception:
+        app.logger.exception("Global model-call budget unavailable")
+        return jsonify({"error": {"type": "ModelBudgetUnavailable", "message": "Generation is temporarily unavailable; retry shortly."}}), 503
+    if not budget_allowed:
+        response = jsonify({
+            "error": {
+                "type": "ModelDailyBudgetExceeded",
+                "message": "The daily model-call budget is exhausted. Try again after the budget window resets.",
+                "retry_after_seconds": budget_retry_after,
+            }
+        })
+        response.status_code = 429
+        response.headers["Retry-After"] = str(budget_retry_after)
+        return response
+
     try:
         response_text = generate_candidates(api_key, model, prompt)
         ideas = parse_idea_candidates(response_text)
