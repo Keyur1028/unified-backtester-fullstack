@@ -26,7 +26,7 @@ python app.py
 
 The API listens at `http://127.0.0.1:3000`.
 
-The engine uses live Yahoo Finance data through `yfinance` by default. Install `pyarrow` (included in requirements) for the parquet cache. Required universe files must exist where the engine contract expects them; for example, `NIFTY100` requires `backend/universes/nifty100.csv`, and `TOP250`/`TOP500` require their candidate-pool CSVs. The engine does not silently substitute a different universe.
+The engine resolves its default `data_cache/`, `universes/`, and `external_scores/` directories relative to `backend/alpha_engine.py`, so API and worker processes use the same locations even when launched from different working directories. The engine uses live Yahoo Finance data through `yfinance` by default. Install `pyarrow` (included in requirements) for the parquet cache. Required universe files must exist where the engine contract expects them; for example, `NIFTY100` requires `backend/universes/nifty100.csv`, and `TOP250`/`TOP500` require their candidate-pool CSVs. The engine does not silently substitute a different universe.
 
 ## Start the frontend
 
