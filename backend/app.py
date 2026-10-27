@@ -401,6 +401,8 @@ def generate_alpha_ideas():
     if not api_key:
         return jsonify({"error": {"type": "ConfigurationError", "message": "Gemini is not configured. Add GEMINI_API_KEY to backend/.env and restart the backend."}}), 503
 
+    prompt = build_generation_prompt(idea, fields, operators, similar_ideas, research_context=research_context, catalog_context=catalog_context)
+
     # Count only provider-bound cache misses, not exact/similarity cache hits.
     # This shared SQLite budget is a cost guard across workers using the same DB.
     try:
@@ -432,7 +434,6 @@ def generate_alpha_ideas():
         response.headers["Retry-After"] = str(budget_retry_after)
         return response
 
-    prompt = build_generation_prompt(idea, fields, operators, similar_ideas, research_context=research_context, catalog_context=catalog_context)
     try:
         response_text = generate_candidates(api_key, model, prompt)
         ideas = parse_idea_candidates(response_text)
