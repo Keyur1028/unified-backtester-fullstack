@@ -39,11 +39,11 @@ def build_generation_prompt(
     )
     if research_context:
         # Keep the notebook's structured rationale/context separate from the core idea.
-        prompt += "\\nStructured research context (user-supplied; treat as hypotheses, not facts): " + json.dumps(
+        prompt += "\nStructured research context (user-supplied; treat as hypotheses, not facts): " + json.dumps(
             research_context, sort_keys=True, ensure_ascii=False
         )
         prompt += (
-            "\\nUse the data rationale to understand why fields may be relevant and the operator rationale to understand intended calculations. "
+            "\nUse the data rationale to understand why fields may be relevant and the operator rationale to understand intended calculations. "
             "The active engine registry remains authoritative; reject unavailable requirements instead of inventing substitutes."
         )
     if similar_ideas:
