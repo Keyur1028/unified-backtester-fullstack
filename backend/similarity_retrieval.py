@@ -20,6 +20,10 @@ INDEX_VERSION = 1
 DEFAULT_MAX_ENTRIES = 300
 MAX_TOKENS_PER_IDEA = 256
 MAX_STORED_CANDIDATES = 3
+MAX_RULES_PER_FIELD = 5
+MAX_RULE_TEXT_LENGTH = 240
+_LIST_TEXT_FIELDS = ("required_fields", "entry_rules", "exit_rules", "execution_rules",
+                     "clarifying_questions", "assumptions")
 MAX_INDEX_FILE_BYTES = 5 * 1024 * 1024
 _TOKEN_RE = re.compile(r"[a-z][a-z0-9_]{1,40}", re.IGNORECASE)
 _STOPWORDS = {
@@ -88,6 +92,16 @@ def _compact_response(response: Any) -> dict[str, Any]:
             ]
             if risks:
                 candidate["risks"] = risks
+        for field in _LIST_TEXT_FIELDS:
+            value = item.get(field)
+            if isinstance(value, list):
+                bounded = [
+                    entry.strip()[:MAX_RULE_TEXT_LENGTH]
+                    for entry in value[:MAX_RULES_PER_FIELD]
+                    if isinstance(entry, str) and entry.strip()
+                ]
+                if bounded:
+                    candidate[field] = bounded
         provenance = item.get("provenance")
         if isinstance(provenance, dict):
             compact_provenance = {
