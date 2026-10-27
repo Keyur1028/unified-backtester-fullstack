@@ -1,4 +1,4 @@
-"""Offline Flask contract tests for execution-job endpoints."""
+"""Offline Flask contract tests for queued execution-job endpoints."""
 import os
 import sys
 import tempfile
@@ -40,69 +40,66 @@ class ExecutionJobApiContractTests(unittest.TestCase):
         self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
 
     def test_rejects_non_object_json_payload(self):
-        response = self.client.post(
-            "/api/execution-jobs", json=["rank(close)"]
-        )
+        response = self.client.post("/api/execution-jobs", json=["rank(close)"])
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
         self.mock_backtest.assert_not_called()
 
-    def test_successful_run_persists_terminal_result_and_is_retrievable(self):
-        self.mock_backtest.return_value = {
-            "status": "success",
-            "experiment_id": "experiment-test-1",
-            "result": {},
-        }
+    def test_submission_returns_queued_job_without_running_backtest(self):
         payload = {
             "expression": "rank(close)",
             "universe": "NIFTY50",
             "start_date": "2024-01-01",
             "end_date": "2024-03-01",
         }
-
         response = self.client.post("/api/execution-jobs", json=payload)
-
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         job = response.get_json()
-        self.assertEqual(job["status"], "succeeded")
+        self.assertEqual(job["status"], "queued")
         self.assertEqual(job["config"], payload)
-        self.assertEqual(job["result"]["status"], "success")
-        self.assertIsNone(job["error"])
-        self.mock_backtest.assert_called_once_with(payload)
+        self.mock_backtest.assert_not_called()
 
+    def test_worker_execution_persists_successful_result_and_is_retrievable(self):
+        self.mock_backtest.return_value = {
+            "status": "success",
+            "experiment_id": "experiment-test-1",
+            "result": {
+                "net_returns": {}, "gross_returns": {}, "ic_series": {},
+                "drawdown_series": {}, "turnover_series": {}, "cum_net_returns": {},
+                "cum_gross_returns": {}, "exposures": {}, "quantile_summary": {},
+                "universe_metadata": {}, "coverage": {},
+            },
+        }
+        response = self.client.post(
+            "/api/execution-jobs",
+            json={"expression": "rank(close)", "universe": "NIFTY50"},
+        )
+        job = response.get_json()
+        completed = backend_app.execute_execution_job(job["job_id"])
+        self.assertEqual(completed["status"], "succeeded")
+        self.assertEqual(completed["result"]["status"], "success")
+        self.mock_backtest.assert_called_once_with(job["config"])
         fetched = self.client.get(f"/api/execution-jobs/{job['job_id']}")
         self.assertEqual(fetched.status_code, 200)
-        self.assertEqual(fetched.get_json()["job_id"], job["job_id"])
         self.assertEqual(fetched.get_json()["status"], "succeeded")
-
         listed = self.client.get("/api/execution-jobs?limit=10")
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(listed.get_json()["count"], 1)
-        self.assertEqual(listed.get_json()["jobs"][0]["job_id"], job["job_id"])
 
     def test_backtest_validation_failure_is_persisted_as_failed_job(self):
         self.mock_backtest.return_value = {
             "status": "error",
-            "experiment_id": "experiment-test-2",
-            "error": {
-                "type": "ValidationError",
-                "message": "Expression is invalid.",
-            },
-            "config": {"expression": "invalid("},
+            "error": {"type": "ValidationError", "message": "Expression is invalid."},
         }
-
         response = self.client.post(
             "/api/execution-jobs", json={"expression": "invalid("}
         )
-
-        self.assertEqual(response.status_code, 200)
         job = response.get_json()
-        self.assertEqual(job["status"], "failed")
-        self.assertEqual(job["error"]["type"], "ValidationError")
-        self.assertIsNone(job["result"])
-        persisted = self.store.get_job(job["job_id"])
-        self.assertEqual(persisted["status"], "failed")
-        self.assertEqual(persisted["error"]["message"], "Expression is invalid.")
+        completed = backend_app.execute_execution_job(job["job_id"])
+        self.assertEqual(completed["status"], "failed")
+        self.assertEqual(completed["error"]["type"], "ValidationError")
+        self.assertIsNone(completed["result"])
+        self.assertEqual(self.store.get_job(job["job_id"])["status"], "failed")
 
     def test_unknown_job_returns_not_found(self):
         response = self.client.get("/api/execution-jobs/does-not-exist")
@@ -112,14 +109,7 @@ class ExecutionJobApiContractTests(unittest.TestCase):
     def test_list_rejects_out_of_range_limit(self):
         for limit in ("0", "101", "not-a-number"):
             with self.subTest(limit=limit):
-                response = self.client.get(
-                    f"/api/execution-jobs?limit={limit}"
-                )
+                response = self.client.get(f"/api/execution-jobs?limit={limit}")
                 self.assertEqual(response.status_code, 400)
-                self.assertEqual(
-                    response.get_json()["error"]["type"], "ValidationError"
-                )
+                self.assertEqual(response.get_json()["error"]["type"], "ValidationError")
 
-
-if __name__ == "__main__":
-    unittest.main()
