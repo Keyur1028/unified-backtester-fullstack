@@ -292,12 +292,13 @@ def generate_alpha_ideas():
 
     # Reuse a prior validated candidate set only for a very close lexical match.
     # Require enough query terms to reduce false positives from short generic ideas.
-    query_tokens = idea_tokens(research_brief)
+    query_tokens = idea_tokens(idea)
+    safety_query_tokens = idea_tokens(research_brief)
     near_duplicate = next(
         (
             row for row in similar_ideas
             if len(query_tokens) >= 5 and row.get("similarity", 0) >= 0.92
-            and not has_directional_conflict(query_tokens, row.get("matched_tokens", []))
+            and not has_directional_conflict(safety_query_tokens, row.get("matched_tokens", []))
             and isinstance(row.get("ideas"), list) and row["ideas"]
         ),
         None,
