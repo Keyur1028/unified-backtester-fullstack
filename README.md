@@ -118,3 +118,13 @@ The key is read only by the Python backend. Do not put it in a `VITE_*` variable
 The response includes `ideas[]` and validation/provenance metadata. Missing Gemini configuration returns a `503` response.
 
 The supplied notebooks `Review_Engine.ipynb` and `idea_to_expression_assistant_reference.ipynb` are retained as project references.
+
+## NIFTY 100 universe setup
+
+The engine requires an explicit constituents file for NIFTY 100 and deliberately does not silently substitute NIFTY 50. Bootstrap or refresh the current constituent snapshot from the official NSE Indices CSV before running NIFTY 100 backtests:
+
+```bash
+python backend/refresh_nifty100.py
+```
+
+This writes `backend/universes/nifty100.csv` and a source/checksum record in `nifty100.metadata.json`. The file is a **current-membership snapshot**, not a point-in-time historical universe; historical backtests using it carry survivorship/reconstitution bias unless you provide historical constituents separately. The script validates exactly 100 unique symbols and fails without replacing the existing file if the source response is invalid.
