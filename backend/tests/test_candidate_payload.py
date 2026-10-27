@@ -49,7 +49,8 @@ class CandidatePayloadTests(unittest.TestCase):
                 self.assertIsNone(candidate)
                 self.assertTrue(error)
 
-    def test_endpoint_returns_bounded_allowlisted_model_fields(self):
+    @patch.object(api_app, "validate_candidate_runtime", return_value=(True, None))
+    def test_endpoint_returns_bounded_allowlisted_model_fields(self, _mock_runtime):
         model_candidate = {
             "name": "n" * 150,
             "hypothesis": "h" * 400,

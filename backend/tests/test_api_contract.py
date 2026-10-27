@@ -135,8 +135,9 @@ class ApiContractTests(unittest.TestCase):
                             with patch.object(api_app, "retrieve_similar", return_value=[
                                 {"similarity": 0.96, "ideas": prior_ideas}
                             ]):
-                                with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": "test-model"}):
-                                    response = self.client.post("/api/generate-alpha", json={"idea": idea})
+                                with patch.object(api_app, "validate_candidate_runtime", return_value=(True, None)):
+                                    with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": "test-model"}):
+                                        response = self.client.post("/api/generate-alpha", json={"idea": idea})
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertEqual(payload["ideas"][0]["expression"], "rank(ts_mean(close, 20))")
@@ -144,7 +145,8 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(payload["retrieval"]["similarity"], 0.96)
         self.assertIn("lexical", payload["note"])
 
-    def test_generate_alpha_cache_hit_does_not_require_gemini_key(self):
+    @patch.object(api_app, "validate_candidate_runtime", return_value=(True, None))
+    def test_generate_alpha_cache_hit_does_not_require_gemini_key(self, _mock_runtime):
         interface = {"fields": {"native_ohlcv": ["close"], "engineered": [], "external": ""}}
         idea = "Capture persistent momentum with a volatility penalty."
         model = "test-model"
@@ -179,8 +181,9 @@ class ApiContractTests(unittest.TestCase):
                             with patch.object(api_app, "retrieve_similar", return_value=[
                                 {"similarity": similarity, "ideas": prior_ideas}
                             ]):
-                                with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": "test-model"}):
-                                    return self.client.post("/api/generate-alpha", json={"idea": idea})
+                                with patch.object(api_app, "validate_candidate_runtime", return_value=(True, None)):
+                                    with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": "test-model"}):
+                                        return self.client.post("/api/generate-alpha", json={"idea": idea})
 
     def test_similarity_exactly_at_threshold_is_reused(self):
         response = self._generate_with_similarity(
