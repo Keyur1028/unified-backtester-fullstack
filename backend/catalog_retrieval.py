@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import math
-from vector_retrieval import retrieve_catalog_vectors
 import re
 from typing import Any
+
+from vector_retrieval import retrieve_catalog_vectors
 
 
 _TOKEN_RE = re.compile(r"[a-z][a-z0-9_]{1,40}", re.IGNORECASE)
