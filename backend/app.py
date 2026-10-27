@@ -25,6 +25,7 @@ from catalog_retrieval import retrieve_catalog_context
 from candidate_runtime_validation import validate_candidate_runtime
 from research_context import validate_research_context
 from alpha_generation_service import build_generation_prompt, generate_candidates
+from generation_gateway import MAX_PROMPT_CHARS
 from model_response_contract import ModelResponseContractError, parse_idea_candidates
 from rate_limit import check_rate_limit
 from backtest_service import run_backtest
@@ -402,6 +403,8 @@ def generate_alpha_ideas():
         return jsonify({"error": {"type": "ConfigurationError", "message": "Gemini is not configured. Add GEMINI_API_KEY to backend/.env and restart the backend."}}), 503
 
     prompt = build_generation_prompt(idea, fields, operators, similar_ideas, research_context=research_context, catalog_context=catalog_context)
+    if len(prompt) > MAX_PROMPT_CHARS:
+        return jsonify({"error": {"type": "PromptTooLarge", "message": "The assembled research prompt exceeds the configured size limit. Shorten the idea or structured context."}}), 413
 
     # Count only provider-bound cache misses, not exact/similarity cache hits.
     # This shared SQLite budget is a cost guard across workers using the same DB.
