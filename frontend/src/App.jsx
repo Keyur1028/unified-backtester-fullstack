@@ -141,6 +141,37 @@ export default function App() {
   }, []);
   useEffect(() => { refreshHealth(); }, [refreshHealth]);
 
+  // Keep the history table in sync while the user is monitoring background jobs.
+  useEffect(() => {
+    if (page !== "runs" || health !== "connected") return undefined;
+    let active = true;
+    const refreshExecutionHistory = async () => {
+      try {
+        const response = await getExecutionJobs(30);
+        if (!active || !Array.isArray(response?.jobs)) return;
+        setHistory(response.jobs.map(job => ({
+          experiment_id: job.job_id,
+          run_id: job.job_id,
+          expression: job.config?.expression || job.result?.expression || job.result?.config?.expression || "",
+          status: job.status,
+          created_at: job.created_at,
+          error: job.error,
+          result: job.result,
+          config: job.config
+        })));
+        setHistoryLoaded(true);
+      } catch {
+        // Preserve the last known history if a transient refresh fails.
+      }
+    };
+    refreshExecutionHistory();
+    const intervalId = window.setInterval(refreshExecutionHistory, 5000);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [page, health]);
+
   const series = useMemo(() => (result?.series?.dates || []).map((date, i) => ({
     date, gross: result.series.cum_gross?.[i], cumNet: result.series.cum_net?.[i],
     drawdown: result.series.drawdown?.[i], sharpe: result.series.rolling_sharpe?.[i],
