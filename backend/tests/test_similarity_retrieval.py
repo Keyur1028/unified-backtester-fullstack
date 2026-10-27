@@ -66,6 +66,12 @@ class SimilarityRetrievalTests(unittest.TestCase):
                         "rationale": "R" * 500,
                         "expected_behavior": "E" * 500,
                         "risks": ["x" * 300, "risk two", "risk three", "risk four"],
+                        "required_fields": ["close", "volume"],
+                        "entry_rules": ["e" * 300, "enter top ranked"],
+                        "exit_rules": ["exit after hold"],
+                        "execution_rules": ["use daily close"],
+                        "clarifying_questions": ["q" * 300],
+                        "assumptions": ["daily data"],
                         "validation": "V" * 200,
                         "provenance": {
                             "validator": "validator-a",
@@ -87,6 +93,13 @@ class SimilarityRetrievalTests(unittest.TestCase):
             self.assertEqual(len(stored_response["ideas"]), 1)
             candidate = stored_response["ideas"][0]
             self.assertEqual(candidate["expression"], "rank(close)")
+            self.assertEqual(candidate["required_fields"], ["close", "volume"])
+            self.assertEqual(len(candidate["entry_rules"]), 2)
+            self.assertEqual(len(candidate["entry_rules"][0]), 240)
+            self.assertEqual(candidate["exit_rules"], ["exit after hold"])
+            self.assertEqual(candidate["execution_rules"], ["use daily close"])
+            self.assertEqual(len(candidate["clarifying_questions"][0]), 240)
+            self.assertEqual(candidate["assumptions"], ["daily data"])
             self.assertEqual(len(candidate["hypothesis"]), 300)
             self.assertEqual(len(candidate["rationale"]), 250)
             self.assertEqual(len(candidate["expected_behavior"]), 200)
