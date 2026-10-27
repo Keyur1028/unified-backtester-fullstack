@@ -21,9 +21,11 @@ class FakeModels:
     def __init__(self, outcomes):
         self.outcomes = list(outcomes)
         self.calls = 0
+        self.last_kwargs = None
 
     def generate_content(self, **kwargs):
         self.calls += 1
+        self.last_kwargs = kwargs
         if not self.outcomes:
             raise AssertionError("unexpected provider call")
         outcome = self.outcomes.pop(0)
@@ -43,6 +45,19 @@ class GenerationGatewayTests(unittest.TestCase):
         result = invoke_json_generation("secret", "test-model", "prompt", client_factory=lambda **_: client)
         self.assertEqual(result, '{"ideas": []}')
         self.assertEqual(client.models.calls, 1)
+        self.assertEqual(client.models.last_kwargs["config"]["max_output_tokens"], 4096)
+
+    def test_rejects_oversized_prompt_before_provider_call(self):
+        client = FakeClient(['{"ideas": []}'])
+        with self.assertRaisesRegex(ValueError, "prompt.*character limit"):
+            invoke_json_generation("secret", "test-model", "x" * 80001, client_factory=lambda **_: client)
+        self.assertEqual(client.models.calls, 0)
+
+    def test_configurable_output_token_budget(self):
+        client = FakeClient(['{"ideas": []}'])
+        with patch.dict(os.environ, {"ALPHA_MODEL_MAX_OUTPUT_TOKENS": "1024"}):
+            invoke_json_generation("secret", "test-model", "prompt", client_factory=lambda **_: client)
+        self.assertEqual(client.models.last_kwargs["config"]["max_output_tokens"], 1024)
 
     def test_retries_transient_provider_error_once(self):
         client = FakeClient([ProviderError(503), '{"ideas": []}'])

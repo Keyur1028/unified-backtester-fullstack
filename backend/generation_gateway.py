@@ -11,6 +11,8 @@ from typing import Any, Callable
 
 DEFAULT_TIMEOUT_MS = 30_000
 MAX_RESPONSE_CHARS = 128_000
+MAX_PROMPT_CHARS = 80_000
+DEFAULT_MAX_OUTPUT_TOKENS = 4096
 
 
 def _positive_int(name: str, default: int, maximum: int) -> int:
@@ -53,8 +55,13 @@ def invoke_json_generation(
         raise ValueError("A non-empty model API key is required.")
     if not str(prompt).strip():
         raise ValueError("Generation prompt must not be empty.")
+    if len(prompt) > MAX_PROMPT_CHARS:
+        raise ValueError("Generation prompt exceeded the configured character limit.")
     timeout_ms = _positive_int("ALPHA_MODEL_TIMEOUT_MS", DEFAULT_TIMEOUT_MS, 120_000)
     retries = _positive_int("ALPHA_MODEL_RETRIES", 1, 1)
+    max_output_tokens = _positive_int("ALPHA_MODEL_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS, 8192)
+    if max_output_tokens < 128:
+        max_output_tokens = DEFAULT_MAX_OUTPUT_TOKENS
     if client_factory is None:
         from google import genai
 
@@ -75,7 +82,7 @@ def invoke_json_generation(
             response = client.models.generate_content(
                 model=model,
                 contents=prompt,
-                config={"response_mime_type": "application/json", "temperature": 0.35},
+                config={"response_mime_type": "application/json", "temperature": 0.35, "max_output_tokens": max_output_tokens},
             )
             text = getattr(response, "text", None)
             if not isinstance(text, str) or not text.strip():
