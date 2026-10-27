@@ -25,6 +25,18 @@ class AlphaGenerationServiceTests(unittest.TestCase):
         self.assertIn("Return ONLY valid JSON", prompt)
         self.assertIn("do not invent data", prompt)
 
+    def test_prompt_adds_retrieved_catalog_context_on_a_real_newline(self):
+        prompt = build_generation_prompt(
+            "Capture persistent price momentum.",
+            ["close", "volume"],
+            ["rank", "ts_mean"],
+            catalog_context={"fields": [{"name": "close", "kind": "native_ohlcv", "score": "0.5"}],
+                             "operators": [{"name": "ts_mean", "semantics": "Rolling mean", "score": "0.4"}]},
+        )
+        self.assertIn("\\nRelevant catalog entries", prompt)
+        self.assertNotIn("\\\\nRelevant catalog entries", prompt)
+        self.assertIn('"ts_mean"', prompt)
+
     def test_prompt_adds_retrieval_matches_as_context_not_authority(self):
         prompt = build_generation_prompt(
             "Capture persistent price momentum.",
