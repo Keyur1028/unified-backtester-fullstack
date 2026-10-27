@@ -33,8 +33,8 @@ class AlphaGenerationServiceTests(unittest.TestCase):
             catalog_context={"fields": [{"name": "close", "kind": "native_ohlcv", "score": "0.5"}],
                              "operators": [{"name": "ts_mean", "semantics": "Rolling mean", "score": "0.4"}]},
         )
-        self.assertIn("\\nRelevant catalog entries", prompt)
-        self.assertNotIn("\\\\nRelevant catalog entries", prompt)
+        self.assertIn("\nRelevant catalog entries", prompt)
+        self.assertNotIn("\\nRelevant catalog entries", prompt)
         self.assertIn('"ts_mean"', prompt)
 
     def test_prompt_adds_retrieval_matches_as_context_not_authority(self):
