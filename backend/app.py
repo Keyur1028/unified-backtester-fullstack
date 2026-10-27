@@ -292,7 +292,7 @@ def generate_alpha_ideas():
 
     # Reuse a prior validated candidate set only for a very close lexical match.
     # Require enough query terms to reduce false positives from short generic ideas.
-    query_tokens = idea_tokens(retrieval_brief)
+    query_tokens = idea_tokens(research_brief)
     near_duplicate = next(
         (
             row for row in similar_ideas
@@ -409,7 +409,7 @@ def generate_alpha_ideas():
         except OSError:
             app.logger.warning("Could not persist idea-generation cache", exc_info=True)
         try:
-            store_idea_response(retrieval_path, retrieval_brief, model, catalog_id, result)
+            store_idea_response(retrieval_path, retrieval_brief, model, catalog_id, result, safety_text=research_brief)
         except OSError:
             app.logger.warning("Could not persist idea retrieval index", exc_info=True)
         result["cache"] = {"hit": False, "strategy": "exact-match"}
