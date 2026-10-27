@@ -5,6 +5,7 @@
 
 
 import os, json, warnings, functools, operator as _pyop, itertools, ast as _ast, importlib.util
+from pathlib import Path
 from dataclasses import dataclass, field as dc_field
 from datetime import datetime
 
@@ -21,12 +22,16 @@ from scipy import stats
 warnings.filterwarnings("ignore")
 pd.set_option("display.width", 160)
 
+# Resolve default data directories relative to this module, not the process CWD.
+# API servers, workers, tests, and notebooks may be launched from different folders.
+ENGINE_DIR = Path(__file__).resolve().parent
+
 CONFIG = {
     "start_date": "2018-01-01",
     "end_date": datetime.today().strftime("%Y-%m-%d"),
-    "cache_dir": "./data_cache",
-    "universe_dir": "./universes",
-    "external_scores_dir": "./external_scores",
+    "cache_dir": str(ENGINE_DIR / "data_cache"),
+    "universe_dir": str(ENGINE_DIR / "universes"),
+    "external_scores_dir": str(ENGINE_DIR / "external_scores"),
     "default_universe": "NIFTY50",
 
     # --- execution / timing (Section 3) ---
