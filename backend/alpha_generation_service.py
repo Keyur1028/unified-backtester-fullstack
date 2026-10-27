@@ -58,7 +58,7 @@ def build_generation_prompt(
         )
     if catalog_context:
         prompt += (
-            "\\nRelevant catalog entries retrieved from the active engine contract (not a substitute for the full registry): "
+            "\nRelevant catalog entries retrieved from the active engine contract (not a substitute for the full registry): "
             + json.dumps(catalog_context, ensure_ascii=False, sort_keys=True)
         )
     if similar_ideas:
