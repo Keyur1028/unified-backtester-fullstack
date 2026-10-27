@@ -181,3 +181,10 @@ This is one production-hardening layer, not a claim that the whole Idea → Expr
 The Idea → Expression endpoint now rejects malformed/non-object JSON payloads and provider responses that exceed the candidate-count or response-size bounds. Each candidate must pass the existing allowlisted payload compaction, registered-field/operator validation, and deterministic synthetic-data runtime probe. Exact duplicate expressions within one model response are rejected rather than returned as separate candidates.
 
 A synthetic runtime probe is only a compatibility smoke test. It is not a substitute for a backtest on the requested NIFTY universe, historical prices, and out-of-sample dates.
+
+
+## Idea → Expression request limits
+
+The expensive `POST /api/generate-alpha` route has a persistent SQLite fixed-window rate limit (default: 30 requests per client IP per 60 seconds). Configure `ALPHA_GENERATION_RATE_LIMIT` and `ALPHA_GENERATION_RATE_WINDOW_SECONDS` to change the budget. Requests over the budget return HTTP 429 and a `Retry-After` header. If the limiter storage is unavailable, generation fails closed with HTTP 503 rather than proceeding to a paid provider call.
+
+The limiter hashes client identifiers before storing them and does not trust `X-Forwarded-For` by default. It is intended for a single instance or shared SQLite volume; horizontally scaled deployments should use a shared atomic rate-limit store and explicitly configure trusted proxy handling. This limit is an abuse/cost guard, not authentication or per-user quota enforcement.

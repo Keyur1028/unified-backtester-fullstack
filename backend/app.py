@@ -26,6 +26,7 @@ from candidate_runtime_validation import validate_candidate_runtime
 from research_context import validate_research_context
 from alpha_generation_service import build_generation_prompt, generate_candidates
 from model_response_contract import ModelResponseContractError, parse_idea_candidates
+from rate_limit import check_rate_limit
 from backtest_service import run_backtest
 from execution_job_contract import ExecutionJobStatus, RunConfiguration
 from execution_job_store import ExecutionJobNotFoundError, InvalidJobTransitionError
@@ -187,6 +188,29 @@ def adapt_result(envelope, elapsed):
 @app.post("/api/generate-alpha")
 def generate_alpha_ideas():
     """Turn a plain-language strategy brief into validated candidate expressions."""
+    # Protect the expensive generation path before parsing prompts or touching the
+    # model provider. Use the direct peer address; do not trust X-Forwarded-For
+    # unless a deployment explicitly configures a trusted-proxy middleware.
+    try:
+        allowed, retry_after = check_rate_limit(
+            request.remote_addr or "unknown",
+            database_path=STORE / "api_rate_limits.sqlite3",
+        )
+    except Exception:
+        app.logger.exception("Alpha generation rate limiter unavailable")
+        return jsonify({"error": {"type": "RateLimiterUnavailable", "message": "Generation is temporarily unavailable; retry shortly."}}), 503
+    if not allowed:
+        response = jsonify({
+            "error": {
+                "type": "RateLimitExceeded",
+                "message": "Too many alpha-generation requests. Wait before retrying.",
+                "retry_after_seconds": retry_after,
+            }
+        })
+        response.status_code = 429
+        response.headers["Retry-After"] = str(retry_after)
+        return response
+
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"error": {"type": "ValidationError", "message": "Request body must be a JSON object."}}), 400
