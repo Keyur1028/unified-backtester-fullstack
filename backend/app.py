@@ -419,7 +419,7 @@ def generate_alpha_ideas():
                                  "scope": "static-syntax-registry-and-synthetic-runtime-probe"},
                   "note": "Candidates passed syntax, registry, and a deterministic synthetic-data runtime probe. Real-data compatibility, data coverage, and out-of-sample robustness still require an actual backtest."}
         result["retrieval"] = {
-            "strategy": "local-lexical-cosine",
+            "strategy": "local-hybrid-lexical-and-vector",
             "matches_used": len(similar_ideas),
             "vector_matches_used": len(vector_matches),
             "raw_prompt_persisted": False,
