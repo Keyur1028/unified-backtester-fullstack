@@ -39,9 +39,9 @@ class RefreshNifty50Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid ticker"):
             refresh_nifty50.parse_constituents(invalid)
 
-    def test_deduplicates_symbols_but_rejects_a_non_50_unique_count(self):
-        duplicate = make_csv() + b"Company duplicate,Sector,S000,EQ,INE000000\n"
-        with self.assertRaisesRegex(ValueError, "received 50"):
+    def test_deduplicates_symbols_then_rejects_fewer_than_50_unique_symbols(self):
+        duplicate = make_csv(49) + b"Company duplicate,Sector,S000,EQ,INE000000\n"
+        with self.assertRaisesRegex(ValueError, "received 49"):
             refresh_nifty50.parse_constituents(duplicate)
 
     def test_refresh_writes_csv_and_metadata(self):
