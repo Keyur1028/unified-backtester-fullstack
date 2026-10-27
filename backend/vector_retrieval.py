@@ -13,6 +13,7 @@ import math
 import os
 import re
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,16 @@ def _connect(path: str | Path) -> sqlite3.Connection:
     return connection
 
 
+@contextmanager
+def _database(path: str | Path):
+    connection = _connect(path)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
 def retrieve_similar_vectors(
     path: str | Path,
     idea: str,
@@ -112,7 +123,7 @@ def retrieve_similar_vectors(
     if not any(query_vector):
         return []
     try:
-        with _connect(path) as connection:
+        with _database(path) as connection:
             rows = connection.execute(
                 """SELECT embedding_json, safety_tokens_json, response_json
                    FROM idea_vectors
@@ -165,7 +176,7 @@ def store_idea_vector_response(
         (backend_id + "|" + " ".join(idea_tokens(idea)) + "|safety|" + " ".join(safety_tokens)).encode("utf-8")
     ).hexdigest()
     compact = _compact_response(response)
-    with _connect(path) as connection:
+    with _database(path) as connection:
         connection.execute(
             """INSERT OR REPLACE INTO idea_vectors
                (signature, model, catalog_fingerprint, embedding_backend,
