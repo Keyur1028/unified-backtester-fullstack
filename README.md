@@ -196,3 +196,8 @@ The Idea → Expression model gateway rejects prompts longer than 80,000 charact
 
 
 Exact-match idea-cache keys include a prompt-contract version. When the model instructions or candidate schema materially change, increment `PROMPT_VERSION` in `backend/idea_cache.py`; old exact-match entries then become misses instead of silently bypassing the updated prompt. Historical retrieval entries may still be supplied as examples, but are independently revalidated before reuse.
+
+
+### Global model-call budget
+
+In addition to the per-client request limit, the backend reserves one shared daily budget slot only after exact-match and similarity-cache misses, so cache hits do not consume the paid-model budget. The default is 100 provider-bound generation requests per 24-hour fixed window; configure `ALPHA_MODEL_DAILY_CALL_LIMIT` (accepted range 1–100,000) to change it. Exhaustion returns HTTP 429 with `Retry-After`; storage failures fail closed with HTTP 503. This counts generation requests, not tokens or billing units, and one request may make a bounded retry, so provider billing can differ from the counter.
