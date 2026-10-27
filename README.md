@@ -193,3 +193,6 @@ The limiter hashes client identifiers before storing them and does not trust `X-
 ### Model prompt and output budgets
 
 The Idea → Expression model gateway rejects prompts longer than 80,000 characters and caps generated output at 4,096 tokens by default. Set `ALPHA_MODEL_MAX_OUTPUT_TOKENS` to a value from 128 to 8,192 to tune the output budget; values outside the supported range fall back to the default. The output cap bounds generation length but is not a hard monetary budget: provider pricing, input-token size, retries, and provider-side billing behavior still matter.
+
+
+Exact-match idea-cache keys include a prompt-contract version. When the model instructions or candidate schema materially change, increment `PROMPT_VERSION` in `backend/idea_cache.py`; old exact-match entries then become misses instead of silently bypassing the updated prompt. Historical retrieval entries may still be supplied as examples, but are independently revalidated before reuse.
