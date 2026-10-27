@@ -46,8 +46,6 @@ class ApiContractTests(unittest.TestCase):
                 "group_aware": ["group_neutralize"],
             },
             "universes": {"NIFTY50": {"description": "test universe"}},
-            "portfolio_types": ["LONG_ONLY", "LONG_SHORT"],
-            "weighting_schemes": ["EQUAL_WEIGHT", "SIGNAL_WEIGHTED"],
             "portfolio_types": ["LONG_SHORT"],
             "weighting_schemes": ["EQUAL_WEIGHT"],
             "execution_settings": {"execution_lag_bars": 1},
