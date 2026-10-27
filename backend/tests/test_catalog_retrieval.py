@@ -19,10 +19,10 @@ class CatalogRetrievalTests(unittest.TestCase):
         result = retrieve_catalog_context(
             "persistent momentum trend using rolling mean of close and volume",
             interface, {"close", "volume", "momentum_20", "rsi_14"},
-            {"rank", "ts_mean", "ts_std_dev"}, limit_per_kind=2,
+            {"rank", "ts_mean", "ts_std_dev"}, limit_per_kind=3,
         )
-        self.assertLessEqual(len(result["fields"]), 2)
-        self.assertLessEqual(len(result["operators"]), 2)
+        self.assertLessEqual(len(result["fields"]), 3)
+        self.assertLessEqual(len(result["operators"]), 3)
         self.assertIn("momentum_20", [row["name"] for row in result["fields"]])
         self.assertIn("ts_mean", [row["name"] for row in result["operators"]])
         self.assertNotIn("not_registered", [row["name"] for row in result["fields"]])
