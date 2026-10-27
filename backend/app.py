@@ -19,6 +19,7 @@ from idea_similarity_safety import has_directional_conflict
 from retrieval_context import format_retrieval_context
 from candidate_payload import compact_generated_candidate
 from alpha_generation_service import build_generation_prompt, generate_candidates
+from backtest_service import run_backtest
 
 BASE = Path(__file__).resolve().parent
 STORE = BASE / "storage"
@@ -343,7 +344,7 @@ def backtest():
     if not isinstance(payload,dict):
         return jsonify({"error":{"type":"ValidationError","message":"Request body must be a JSON object"}}),400
     started = time.perf_counter()
-    envelope = engine.run_backtest_api(payload)
+    envelope = run_backtest(payload)
     elapsed = time.perf_counter()-started
     try: engine.TRACKER.save(str(TRACKER_FILE))
     except Exception as exc: app.logger.warning("Tracker persistence failed: %s",exc)
