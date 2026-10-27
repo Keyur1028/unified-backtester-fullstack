@@ -114,6 +114,39 @@ class SQLiteExecutionJobStoreTests(unittest.TestCase):
         created["config"]["universe"] = "TOP500"
         self.assertEqual(self.store.get_job("job-8")["config"]["universe"], "NIFTY50")
 
+    def test_heartbeat_refreshes_only_running_jobs(self):
+        self.store.create_job(self.configuration, job_id="heartbeat-1")
+        self.assertFalse(self.store.heartbeat_job("heartbeat-1"))
+        self.store.transition("heartbeat-1", "running")
+        self.assertTrue(self.store.heartbeat_job("heartbeat-1"))
+        self.assertFalse(self.store.heartbeat_job("missing-job"))
+
+    def test_stale_running_jobs_are_failed_but_queued_jobs_are_untouched(self):
+        self.store.create_job(self.configuration, job_id="stale-running")
+        self.store.create_job(self.configuration, job_id="still-queued")
+        self.store.transition("stale-running", "running")
+        failed_count = self.store.fail_stale_running_jobs("9999-01-01T00:00:00+00:00")
+        self.assertEqual(failed_count, 1)
+        failed = self.store.get_job("stale-running")
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["error"]["type"], "WorkerLeaseExpired")
+        self.assertIsNone(failed["result"])
+        self.assertEqual(self.store.get_job("still-queued")["status"], "queued")
+
+    def test_heartbeat_prevents_stale_job_recovery(self):
+        self.store.create_job(self.configuration, job_id="alive-running")
+        self.store.transition("alive-running", "running")
+        self.store.heartbeat_job("alive-running")
+        failed_count = self.store.fail_stale_running_jobs("2000-01-01T00:00:00+00:00")
+        self.assertEqual(failed_count, 0)
+        self.assertEqual(self.store.get_job("alive-running")["status"], "running")
+
+    def test_stale_cutoff_must_be_non_empty(self):
+        for cutoff in ("", None):
+            with self.subTest(cutoff=cutoff):
+                with self.assertRaises(ValueError):
+                    self.store.fail_stale_running_jobs(cutoff)
+
 
 if __name__ == "__main__":
     unittest.main()
