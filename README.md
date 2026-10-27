@@ -174,3 +174,10 @@ Optional backend environment settings:
 - `ALPHA_MODEL_RETRIES`: currently bounded to at most one retry; default is `1`.
 
 This is one production-hardening layer, not a claim that the whole Idea → Expression flow is production complete. The pipeline still requires integration tests against the real expression engine and data adapter, operational rate limiting/authentication for public deployments, and parity review against the production notebook once that notebook is available.
+
+
+## Candidate response contract
+
+The Idea → Expression endpoint now rejects malformed/non-object JSON payloads and provider responses that exceed the candidate-count or response-size bounds. Each candidate must pass the existing allowlisted payload compaction, registered-field/operator validation, and deterministic synthetic-data runtime probe. Exact duplicate expressions within one model response are rejected rather than returned as separate candidates.
+
+A synthetic runtime probe is only a compatibility smoke test. It is not a substitute for a backtest on the requested NIFTY universe, historical prices, and out-of-sample dates.
