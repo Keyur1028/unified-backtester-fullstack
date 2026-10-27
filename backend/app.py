@@ -417,6 +417,23 @@ def create_execution_job():
         }), 500
 
 
+@app.get("/api/execution-jobs")
+def list_execution_jobs():
+    """List recent persisted execution jobs; page size is limited to 100."""
+    raw_limit = request.args.get("limit", "20")
+    try:
+        limit = int(raw_limit)
+        jobs = JOB_STORE.list_jobs(limit=limit)
+    except (TypeError, ValueError):
+        return jsonify({
+            "error": {
+                "type": "ValidationError",
+                "message": "limit must be an integer between 1 and 100.",
+            }
+        }), 400
+    return jsonify({"jobs": jobs, "count": len(jobs), "limit": limit}), 200
+
+
 @app.get("/api/execution-jobs/<job_id>")
 def get_execution_job(job_id):
     """Fetch a persisted execution-job record by identifier."""
