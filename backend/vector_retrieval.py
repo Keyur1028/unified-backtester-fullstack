@@ -11,7 +11,6 @@ import hashlib
 import json
 import math
 import os
-import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -23,7 +22,6 @@ VECTOR_DIMENSIONS = 384
 MAX_ENTRIES = 300
 _MAX_DB_BYTES = 25 * 1024 * 1024
 _LOCAL_MODEL_CACHE: dict[str, Any] = {}
-_TOKEN_RE = re.compile(r"[a-z][a-z0-9_]{1,40}", re.IGNORECASE)
 
 
 def _local_embedding_model():
@@ -199,11 +197,8 @@ def store_idea_vector_response(
              json.dumps(compact, ensure_ascii=False, separators=(",", ":"))),
         )
         connection.execute(
-            """DELETE FROM idea_vectors WHERE id IN (
-                SELECT id FROM idea_vectors WHERE model = ? AND catalog_fingerprint = ?
-                ORDER BY id DESC LIMIT -1 OFFSET ?
-            )""",
-            (model, catalog_fingerprint, max(1, int(max_entries))),
+            "DELETE FROM idea_vectors WHERE id NOT IN (SELECT id FROM idea_vectors ORDER BY id DESC LIMIT ?)",
+            (max(1, int(max_entries)),),
         )
 
 def _catalog_content_fingerprint(entries: list[dict[str, str]]) -> str:
@@ -241,6 +236,9 @@ def retrieve_catalog_vectors(
                 (fingerprint, backend_id),
             ).fetchone()[0]
             if not existing:
+                connection.execute(
+                    "DELETE FROM catalog_vectors WHERE catalog_content_fingerprint != ?", (fingerprint,)
+                )
                 for entry in entries:
                     entry_vector, entry_backend = embed_text(
                         entry["kind"] + ": " + entry["name"] + " " + entry["description"]

@@ -27,7 +27,7 @@ class IdeaCacheTests(unittest.TestCase):
 
     def test_cache_key_changes_when_prompt_contract_version_changes(self):
         base = make_cache_key("momentum idea", ["close"], ["rank"], "model-a")
-        with patch("idea_cache.PROMPT_VERSION", 3):
+        with patch("idea_cache.PROMPT_VERSION", 4):
             changed = make_cache_key("momentum idea", ["close"], ["rank"], "model-a")
         self.assertNotEqual(base, changed)
 

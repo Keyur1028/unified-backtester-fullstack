@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, time, json, ast
+import os, time, json, ast, sqlite3
 from pathlib import Path
 from typing import Any
 import numpy as np
@@ -12,7 +12,7 @@ try:
 except ImportError:
     pass
 import alpha_engine as engine
-from idea_cache import make_cache_key, read_cached_response, write_cached_response
+from idea_cache import PROMPT_VERSION, make_cache_key, read_cached_response, write_cached_response
 from candidate_validation import VALIDATOR_VERSION, catalog_fingerprint, validate_expression
 from similarity_retrieval import idea_tokens, retrieve_similar, store_idea_response
 from vector_retrieval import retrieve_similar_vectors, store_idea_vector_response
@@ -308,7 +308,7 @@ def generate_alpha_ideas():
             app.logger.warning("Ignoring exact-match alpha cache entry that failed runtime preflight")
         app.logger.warning("Ignoring invalid exact-match alpha cache entry")
 
-    catalog_id = catalog_fingerprint(fields, operators)
+    catalog_id = f"{catalog_fingerprint(fields, operators)}:{PROMPT_VERSION}"
     retrieval_summary = summarize_for_retrieval(research_brief)
     retrieval_brief = retrieval_summary["summary"]
     vector_path = STORE / "idea_vectors.sqlite3"
@@ -506,7 +506,7 @@ def generate_alpha_ideas():
             store_idea_vector_response(
                 vector_path, retrieval_brief, model, catalog_id, result, safety_text=research_brief
             )
-        except (OSError, ValueError):
+        except (OSError, ValueError, sqlite3.Error):
             app.logger.warning("Could not persist local idea vector index", exc_info=True)
         result["cache"] = {"hit": False, "strategy": "exact-match"}
         return jsonify(result)

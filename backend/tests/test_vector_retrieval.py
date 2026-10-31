@@ -72,5 +72,15 @@ class VectorRetrievalTests(unittest.TestCase):
         self.assertGreater(related[0]["similarity"], unrelated[0]["similarity"])
 
 
+    def test_store_keeps_only_the_newest_entries_across_scopes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "vectors.sqlite3"
+            for index in range(5):
+                store_idea_vector_response(path, f"momentum idea {index}", f"model-{index}", "catalog-a",
+                                           {"ideas": []}, max_entries=2)
+            with sqlite3.connect(path) as connection:
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM idea_vectors").fetchone()[0], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

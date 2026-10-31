@@ -25,7 +25,7 @@ MAX_RULE_TEXT_LENGTH = 240
 _LIST_TEXT_FIELDS = ("required_fields", "entry_rules", "exit_rules", "execution_rules",
                      "clarifying_questions", "assumptions")
 MAX_INDEX_FILE_BYTES = 5 * 1024 * 1024
-_TOKEN_RE = re.compile(r"[a-z][a-z0-9_]{1,40}", re.IGNORECASE)
+_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_]{0,40}", re.IGNORECASE)
 _STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
     "in", "into", "is", "it", "of", "on", "or", "that", "the", "this", "to",

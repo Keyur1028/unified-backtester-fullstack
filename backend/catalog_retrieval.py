@@ -8,7 +8,7 @@ from typing import Any
 from vector_retrieval import retrieve_catalog_vectors
 
 
-_TOKEN_RE = re.compile(r"[a-z][a-z0-9_]{1,40}", re.IGNORECASE)
+_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_]{0,40}", re.IGNORECASE)
 _STOPWORDS = {"a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
               "in", "into", "is", "it", "of", "on", "or", "that", "the", "this", "to",
               "with", "idea", "strategy", "signal", "alpha"}
@@ -24,7 +24,7 @@ def _score(query_tokens: set[str], name: str, description: str = "") -> float:
     if not query_tokens or not item_tokens:
         return 0.0
     overlap = len(query_tokens & item_tokens)
-    exact_name = 1.0 if name.casefold() in query_tokens else 0.0
+    exact_name = 1.0 if _tokens(name) and _tokens(name) <= query_tokens else 0.0
     return overlap / math.sqrt(len(query_tokens) * len(item_tokens)) + exact_name
 
 
