@@ -10,7 +10,7 @@ MAX_CONTEXT_CHARS = 6000
 _FIELD_LIMITS = {
     "name": 100,
     "hypothesis": 300,
-    "expression": 300,
+    "expression": 1000,
     "rationale": 250,
     "expected_behavior": 200,
 }

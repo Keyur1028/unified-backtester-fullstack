@@ -162,6 +162,15 @@ class SimilarityRetrievalTests(unittest.TestCase):
             self.assertNotIn("unexpected_top_level", legacy["response"])
             self.assertLess(len(path.read_bytes()), MAX_INDEX_FILE_BYTES)
 
+    def test_numeric_parameters_keep_ideas_apart(self):
+        # A 20/200-day rule must not look like a 50/100-day rule (app reuses at >= 0.92).
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "index.json"
+            response = {"ideas": [{"expression": "close > sma(close, 20)"}]}
+            store_idea_response(path, "Buy when the 20 day moving average of close crosses above the 200 day average", "model-a", "catalog-a", response)
+            rows = retrieve_similar(path, "Buy when the 50 day moving average of close crosses above the 100 day average", "model-a", "catalog-a")
+            self.assertTrue(all(row["similarity"] < 0.92 for row in rows))
+
     def test_oversized_index_is_a_miss(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "index.json"
