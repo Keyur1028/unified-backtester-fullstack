@@ -116,6 +116,40 @@ class IdeaExpressionPipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(second.get_json()["cache"], {"hit": True, "strategy": "exact-match"})
         generate.assert_called_once()
 
+    def test_reworded_idea_reuses_prior_candidates_without_second_call(self):
+        model_response = json.dumps({
+            "ideas": [{
+                "name": "Persistent momentum",
+                "hypothesis": "Cross-sectional price strength persists.",
+                "expression": "rank(ts_mean(close, 20))",
+                "rationale": "Ranks stocks by their trailing mean price.",
+                "expected_behavior": "Higher scores indicate higher recent prices.",
+                "risks": ["Price level is not a point-in-time fundamental signal."],
+                "required_fields": ["close"],
+                "entry_rules": ["Enter the top-ranked available names."],
+                "exit_rules": ["Rebalance after the configured holding period."],
+                "execution_rules": ["Use the configured daily-bar execution timing."],
+                "clarifying_questions": [],
+                "assumptions": ["Daily OHLCV data is available."],
+            }]
+        })
+        with patch.object(api_app, "generate_candidates", return_value=model_response) as generate:
+            first = self.client.post(
+                "/api/generate-alpha",
+                json={"idea": "Find stocks with persistent price momentum over one month."},
+            )
+            # Same tokens, different order: misses the exact cache, hits similarity reuse.
+            second = self.client.post(
+                "/api/generate-alpha",
+                json={"idea": "Find persistent price momentum stocks over one month."},
+            )
+
+        self.assertEqual(first.status_code, 200, first.get_json())
+        self.assertEqual(second.status_code, 200, second.get_json())
+        self.assertEqual(second.get_json()["cache"], {"hit": True, "strategy": "similarity"})
+        self.assertEqual(second.get_json()["ideas"][0]["expression"], "rank(ts_mean(close, 20))")
+        generate.assert_called_once()
+
     def test_intraday_context_is_rejected_before_model_call(self):
         with patch.object(api_app, "generate_candidates") as generate:
             response = self.client.post(

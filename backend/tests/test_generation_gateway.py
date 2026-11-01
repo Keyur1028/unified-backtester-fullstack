@@ -61,11 +61,19 @@ class GenerationGatewayTests(unittest.TestCase):
 
     def test_retries_transient_provider_error_once(self):
         client = FakeClient([ProviderError(503), '{"ideas": []}'])
-        with patch("generation_gateway.time.sleep") as sleep:
+        with patch.dict(os.environ, {"ALPHA_MODEL_RETRIES": "1"}), patch("generation_gateway.time.sleep") as sleep:
             result = invoke_json_generation("secret", "test-model", "prompt", client_factory=lambda **_: client)
         self.assertEqual(result, '{"ideas": []}')
         self.assertEqual(client.models.calls, 2)
         sleep.assert_called_once()
+
+    def test_no_retry_by_default_to_avoid_double_billing(self):
+        client = FakeClient([ProviderError(503), '{"ideas": []}'])
+        with patch.dict(os.environ, {"ALPHA_MODEL_RETRIES": ""}), patch("generation_gateway.time.sleep") as sleep:
+            with self.assertRaises(ProviderError):
+                invoke_json_generation("secret", "test-model", "prompt", client_factory=lambda **_: client)
+        self.assertEqual(client.models.calls, 1)
+        sleep.assert_not_called()
 
     def test_does_not_retry_nontransient_provider_error(self):
         client = FakeClient([ProviderError(400), '{"ideas": []}'])

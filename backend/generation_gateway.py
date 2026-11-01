@@ -58,7 +58,8 @@ def invoke_json_generation(
     if len(prompt) > MAX_PROMPT_CHARS:
         raise ValueError("Generation prompt exceeded the configured character limit.")
     timeout_ms = _positive_int("ALPHA_MODEL_TIMEOUT_MS", DEFAULT_TIMEOUT_MS, 120_000)
-    retries = _positive_int("ALPHA_MODEL_RETRIES", 1, 1)
+    # Off by default: a retry after a timeout can be billed twice. Opt in with 1.
+    retries = 1 if os.getenv("ALPHA_MODEL_RETRIES", "0").strip() == "1" else 0
     max_output_tokens = _positive_int("ALPHA_MODEL_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS, 8192)
     if max_output_tokens < 128:
         max_output_tokens = DEFAULT_MAX_OUTPUT_TOKENS

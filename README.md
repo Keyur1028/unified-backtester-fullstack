@@ -171,7 +171,7 @@ Remote alpha generation now goes through `backend/generation_gateway.py`, which 
 Optional backend environment settings:
 
 - `ALPHA_MODEL_TIMEOUT_MS`: request timeout in milliseconds (default `30000`; accepted range 1–120000).
-- `ALPHA_MODEL_RETRIES`: currently bounded to at most one retry; default is `1`.
+- `ALPHA_MODEL_RETRIES`: set to `1` to allow one retry on transient errors; default is `0` so each cache miss makes exactly one billable model call.
 
 This is one production-hardening layer, not a claim that the whole Idea → Expression flow is production complete. The pipeline still requires integration tests against the real expression engine and data adapter, operational rate limiting/authentication for public deployments, and parity review against the production notebook once that notebook is available.
 
