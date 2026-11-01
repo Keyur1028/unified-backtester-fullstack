@@ -147,6 +147,10 @@ def _compact_response(response: Any) -> dict[str, Any] | None:
 
     try:
         encoded = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) > MAX_RESPONSE_BYTES:
+            # Rejected rows are diagnostics, not reusable candidates: drop them before giving up.
+            compact.pop("rejected", None)
+            encoded = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
     except (TypeError, ValueError):
         return None
     if len(encoded.encode("utf-8")) > MAX_RESPONSE_BYTES:

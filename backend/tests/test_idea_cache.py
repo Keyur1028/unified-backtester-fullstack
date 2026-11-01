@@ -115,6 +115,19 @@ class IdeaCacheTests(unittest.TestCase):
             write_cached_response(path, "key", {"value": "x" * MAX_RESPONSE_BYTES})
             self.assertFalse(path.exists())
 
+    def test_full_candidate_set_is_cached_even_with_max_rejected_rows(self):
+        # Five max-size candidates plus five max-size rejected rows exceed the cap;
+        # the candidates must still be cached so an identical request is a hit.
+        idea = {"name": "n" * 100, "hypothesis": "h" * 300, "expression": "e" * 1000,
+                "rationale": "r" * 250, "expected_behavior": "x" * 200, "risks": ["k" * 160] * 3}
+        rejected = [{"expression": "z" * 1000, "reason": "q" * 250}] * 5
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cache.json"
+            write_cached_response(path, "key", {"ideas": [idea] * 5, "rejected": rejected})
+            cached = read_cached_response(path, "key")
+            self.assertEqual(len(cached["ideas"]), 5)
+            self.assertNotIn("rejected", cached)
+
     def test_oversized_cache_file_is_a_miss(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cache.json"
