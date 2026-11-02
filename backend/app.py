@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, time, json, ast, sqlite3
+import os, time, json, sqlite3
 from pathlib import Path
 from typing import Any
 import numpy as np
@@ -17,7 +17,6 @@ from candidate_validation import VALIDATOR_VERSION, catalog_fingerprint, validat
 from similarity_retrieval import idea_tokens, retrieve_similar, store_idea_response
 from vector_retrieval import retrieve_similar_vectors, store_idea_vector_response
 from idea_similarity_safety import has_directional_conflict
-from retrieval_context import format_retrieval_context
 from candidate_payload import compact_generated_candidate
 from strategy_handoff import build_strategy_handoff
 from local_summarizer import summarize_for_retrieval
@@ -105,7 +104,7 @@ def frame_pairs(raw, column):
 
 def adapt_result(envelope, elapsed):
     r = envelope["result"]
-    netp, grossp = pairs(r.get("net_returns")), pairs(r.get("gross_returns"))
+    netp = pairs(r.get("net_returns"))
     dates = [d.strftime("%Y-%m-%d") for d, _ in netp]
     net = pd.Series([v if v is not None else np.nan for _, v in netp],
                     index=pd.DatetimeIndex([d for d, _ in netp]), dtype=float)
@@ -322,7 +321,7 @@ def generate_alpha_ideas():
     )
     vector_matches = retrieve_similar_vectors(
         vector_path, retrieval_brief, model, catalog_id,
-        limit=3, min_similarity=0.25, safety_text=research_brief,
+        limit=3, min_similarity=0.25,
     )
     # Merge duplicate candidate sets returned by both retrieval strategies.
     merged_matches = {}

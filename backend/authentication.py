@@ -97,5 +97,4 @@ def register_auth_middleware(app: Flask) -> None:
                 }
             }), 401
         g.user_id = claims["sub"]
-        g.auth_claims = claims
         return None

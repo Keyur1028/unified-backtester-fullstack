@@ -4,7 +4,7 @@
 # --- Exported from notebook cell 3 ---
 
 
-import os, json, warnings, functools, operator as _pyop, itertools, ast as _ast, importlib.util
+import os, json, warnings, functools, operator as _pyop, ast as _ast, importlib.util
 from pathlib import Path
 from dataclasses import dataclass, field as dc_field
 from datetime import datetime
@@ -314,12 +314,12 @@ def get_universe(name: str, close: pd.DataFrame, market_cap: pd.DataFrame = None
     raise ValueError(f"Unknown universe: {name}")
 
 
-def get_universe_mask(name: str, close: pd.DataFrame, market_cap: pd.DataFrame = None) -> pd.DataFrame:
-    """Backward-compatible wrapper around get_universe() -- kept from v1's interface."""
-    mask, _ = get_universe(name, close, market_cap)
-    return mask
 
 
+
+
+# Kept although unreferenced: it is the intended source of the market_cap input that
+# TOP250/TOP500 need (see the bug note in the summary); deleting it would remove that path.
 def fetch_shares_outstanding(tickers) -> dict:
     out = {}
     for t in tickers:
@@ -1061,7 +1061,6 @@ def construct_portfolio_row(alpha_row: pd.Series, portfolio_type: str, weighting
 
     if portfolio_type in ("LONG_SHORT", "TOP_BOTTOM", "TOP_K", "BOTTOM_K", "QUANTILE"):
         ranked = a.rank(method="first")
-        n = len(a)
         if portfolio_type == "QUANTILE":
             bucket_id = pd.qcut(ranked, n_buckets, labels=False, duplicates="drop")
             qi = n_buckets - 1 if quantile_index is None else quantile_index
@@ -1284,11 +1283,6 @@ def quantile_analysis(alpha: pd.DataFrame, fwd_returns: pd.DataFrame, n_buckets:
         summary.loc[b, "cumulative_return"] = float((1 + bucket_returns.fillna(0)).prod() - 1)
     return summary
 
-def quantile_monotonicity(quantile_summary: pd.DataFrame) -> float:
-    if len(quantile_summary) < 3:
-        return np.nan
-    rho, _ = stats.spearmanr(quantile_summary.index, quantile_summary["avg_return"])
-    return float(rho)
 
 
 # --- Exported from notebook cell 27 ---
@@ -1326,9 +1320,6 @@ def exposure_series(weights: pd.DataFrame) -> pd.DataFrame:
     })
 
 
-def sector_exposure(weights: pd.DataFrame, group_map: dict) -> pd.DataFrame:
-    grp = pd.Series(group_map).reindex(weights.columns).fillna("UNKNOWN")
-    return weights.T.groupby(grp).sum().T
 
 
 def compute_factor_returns(fields: dict, universe_mask: pd.DataFrame, feature_name: str,
@@ -1359,26 +1350,6 @@ def factor_exposure_analysis(portfolio_returns: pd.Series, fields: dict, univers
 # --- Exported from notebook cell 29 ---
 
 
-def data_quality_report(ohlcv: dict) -> pd.DataFrame:
-    close = ohlcv["close"]
-    rows = []
-    for ticker in close.columns:
-        s = close[ticker]
-        vol = ohlcv["volume"][ticker]
-        returns = s.pct_change()
-        rows.append({
-            "ticker": ticker,
-            "n_obs": int(s.notna().sum()),
-            "missing_pct": float(s.isna().mean()),
-            "duplicate_dates": int(close.index.duplicated().sum()),
-            "negative_or_zero_price_days": int((s <= 0).sum()),
-            "extreme_return_days_gt_50pct": int((returns.abs() > 0.5).sum()),
-            "zero_volume_days": int((vol == 0).sum()),
-            "insufficient_history": bool(s.notna().sum() < 60),
-        })
-    report = pd.DataFrame(rows).set_index("ticker")
-    report.attrs["duplicate_tickers"] = int(close.columns.duplicated().sum())
-    return report
 
 
 def coverage_diagnostics(alpha: pd.DataFrame) -> dict:
@@ -1395,8 +1366,6 @@ def coverage_diagnostics(alpha: pd.DataFrame) -> dict:
 
 # --- Exported from notebook cell 31 ---
 
-
-import sys as _sys
 
 @dataclass
 class BacktestResult:
@@ -1505,73 +1474,15 @@ class BacktestResult:
 # --- Exported from notebook cell 33 ---
 
 
-def check_same_day_leakage(alpha_actionable: pd.DataFrame, close: pd.DataFrame,
-                            universe_mask: pd.DataFrame) -> dict:
-    fwd = compute_forward_returns(close, 1).where(universe_mask)
-    same_day = close.pct_change().where(universe_mask)
-    fwd_ic = compute_daily_ic(alpha_actionable, fwd).mean()
-    same_day_ic = compute_daily_ic(alpha_actionable, same_day).mean()
-    return {
-        "forward_ic": float(fwd_ic), "same_day_ic": float(same_day_ic),
-        "suspicious": bool(abs(same_day_ic) > abs(fwd_ic) * 2 and abs(same_day_ic) > 0.05),
-    }
 
 
-def synthetic_leakage_ground_truth_test(n_dates: int = 200, n_tickers: int = 20, seed: int = 42) -> dict:
-    """Builds a fake dataset where 'cheat_feature' at date t is EXACTLY the
-    return realized from t to t+1 (i.e. a perfect leak if used unlagged).
-    Confirms: (a) with execution_lag_bars=0, evaluating the raw feature as
-    the alpha against the next-day forward return gives IC ~ 1.0 (the leak
-    IS present and IS detected by IC, proving the test dataset is a valid
-    leak fixture) and (b) with execution_lag_bars=1 (align_signal_to_execution
-    applied), that same near-perfect IC collapses toward 0 — proving the lag
-    mechanism actually removes a real leak rather than just looking correct."""
-    rng = np.random.default_rng(seed)
-    dates = pd.bdate_range("2020-01-01", periods=n_dates)
-    tickers = [f"SYN{i}" for i in range(n_tickers)]
-    rets = rng.normal(0, 0.02, size=(n_dates, n_tickers))
-    price = pd.DataFrame(100 * np.exp(np.cumsum(rets, axis=0)), index=dates, columns=tickers)
-    mask = pd.DataFrame(True, index=dates, columns=tickers)
-
-    true_fwd_return = compute_forward_returns(price, 1)
-    cheat_feature = true_fwd_return.copy()  # the leak: today's row IS tomorrow's return
-
-    unlagged_ic = compute_daily_ic(cheat_feature.where(mask), true_fwd_return.where(mask)).mean()
-    lagged_feature = align_signal_to_execution(cheat_feature, execution_lag_bars=1)
-    lagged_ic = compute_daily_ic(lagged_feature.where(mask), true_fwd_return.where(mask)).mean()
-
-    return {
-        "unlagged_ic_with_known_leak": float(unlagged_ic),
-        "lagged_ic_with_same_leak": float(lagged_ic),
-        "leak_correctly_detected": bool(abs(unlagged_ic) > 0.8),
-        "lag_correctly_removes_leak": bool(abs(lagged_ic) < 0.2),
-    }
 
 
 # --- Exported from notebook cell 35 ---
 
 
-def effective_n(n_obs: int, holding_period: int) -> float:
-    """Overlapping holding-period observations aren\'t independent — approximate
-    effective sample size as n / holding_period (a standard, if simplified,
-    correction; a full Newey-West correction would be more rigorous but is not
-    implemented here — see Section Z limitations)."""
-    return max(n_obs / max(holding_period, 1), 1)
 
-def ic_confidence_interval(ic_series: pd.Series, holding_period: int, conf: float = 0.95) -> dict:
-    clean = ic_series.dropna()
-    n_eff = effective_n(len(clean), holding_period)
-    se = clean.std() / np.sqrt(n_eff) if n_eff > 1 else np.nan
-    z = stats.norm.ppf(1 - (1 - conf) / 2)
-    mean = clean.mean()
-    return {"mean": float(mean), "se": float(se), "n_obs": len(clean), "n_effective": float(n_eff),
-            "ci_low": float(mean - z * se) if se == se else np.nan,
-            "ci_high": float(mean + z * se) if se == se else np.nan}
 
-def sharpe_standard_error(sharpe: float, n_obs: int) -> float:
-    if n_obs <= 1 or sharpe != sharpe:
-        return np.nan
-    return float(np.sqrt((1 + 0.5 * sharpe ** 2) / n_obs))
 
 
 class ExperimentTracker:
@@ -1699,55 +1610,10 @@ TRACKER = ExperimentTracker()
 # --- Exported from notebook cell 37 ---
 
 
-def split_dates(dates: pd.DatetimeIndex, train_frac: float = 0.6, val_frac: float = 0.2):
-    n = len(dates)
-    train_end, val_end = int(n * train_frac), int(n * (train_frac + val_frac))
-    return dates[:train_end], dates[train_end:val_end], dates[val_end:]
 
 
-def evaluate_train_val_test(run_backtest_fn, **kwargs) -> pd.DataFrame:
-    """Chronological only, per Section 30 — runs the SAME configuration on
-    three non-overlapping, time-ordered slices via explicit start/end dates
-    rather than randomly splitting rows."""
-    start, end = pd.Timestamp(kwargs["start"]), pd.Timestamp(kwargs["end"])
-    full_range = pd.bdate_range(start, end)
-    train, val, test = split_dates(full_range)
-    rows = {}
-    for label, dates in [("train", train), ("val", val), ("test", test)]:
-        if len(dates) < 30:
-            continue
-        sub_kwargs = dict(kwargs)
-        sub_kwargs["start"], sub_kwargs["end"] = str(dates[0].date()), str(dates[-1].date())
-        sub_kwargs["_skip_tracker"] = True
-        result = run_backtest_fn(**sub_kwargs)
-        rows[label] = result.summary()
-    return pd.DataFrame(rows).T
 
 
-def walk_forward(run_backtest_fn, window_days: int = 252, step_days: int = 63,
-                  expanding: bool = False, **kwargs) -> pd.DataFrame:
-    start, end = pd.Timestamp(kwargs["start"]), pd.Timestamp(kwargs["end"])
-    all_dates = pd.bdate_range(start, end)
-    rows = []
-    win_start_idx = 0
-    while True:
-        win_start = 0 if expanding else win_start_idx
-        win_end_idx = win_start_idx + window_days
-        if win_end_idx > len(all_dates):
-            break
-        window_dates = all_dates[win_start:win_end_idx]
-        sub_kwargs = dict(kwargs)
-        sub_kwargs["start"], sub_kwargs["end"] = str(window_dates[0].date()), str(window_dates[-1].date())
-        sub_kwargs["_skip_tracker"] = True
-        try:
-            result = run_backtest_fn(**sub_kwargs)
-            rows.append({"window_start": window_dates[0], "window_end": window_dates[-1],
-                         "ic_mean": result.ic_mean, "sharpe_net": result.sharpe_net,
-                         "turnover_annual": result.turnover_annual})
-        except Exception as e:
-            rows.append({"window_start": window_dates[0], "window_end": window_dates[-1], "error": str(e)})
-        win_start_idx += step_days
-    return pd.DataFrame(rows)
 
 
 # --- Exported from notebook cell 39 ---
@@ -1861,7 +1727,6 @@ def run_backtest(expression: str, universe: str, start: str, end: str,
 
     coverage = coverage_diagnostics(alpha_actionable)
 
-    ann_factor = 252 / holding_period
     ann_return_gross = annualize_return(bt["gross_returns"], 252)
     ann_return_net = annualize_return(bt["net_returns"], 252)
     ann_vol = annualize_vol(bt["net_returns"], 252)
@@ -1927,127 +1792,18 @@ def run_backtest(expression: str, universe: str, start: str, end: str,
     return result
 
 
-def print_backtest_summary(result: BacktestResult):
-    print(f"--- {result.expression}  |  {result.universe}  {result.start_date}..{result.end_date} "
-          f"  hp={result.holding_period}  {result.portfolio_type}/{result.weighting} ---")
-    for k_, v in result.summary().items():
-        print(f"  {k_:>22}: {v:.4f}" if isinstance(v, float) else f"  {k_:>22}: {v}")
-    if result.survivorship_bias_risk:
-        print("  [!] survivorship_bias_risk = True — see universe_metadata['notes']")
 
 
 # --- Exported from notebook cell 41 ---
 
 
-def sensitivity_analysis(expression: str, universe: str, start: str, end: str, **base_kwargs) -> dict:
-    """Runs the fixed expression across period / universe / holding-period /
-    cost / portfolio-construction variations. Returns a dict of DataFrames,
-    one per axis, plus a stability note (std of Sharpe across each axis —
-    high std = the result is fragile to that choice, not proof either way)."""
-    results = {}
-
-    # -- year-by-year --
-    years = pd.date_range(start, end, freq="YS").year.tolist()
-    rows = []
-    for y in years:
-        y_start, y_end = f"{y}-01-01", f"{y}-12-31"
-        try:
-            r = run_backtest(expression, universe, y_start, y_end, _skip_tracker=True, **base_kwargs)
-            rows.append({"year": y, "sharpe_net": r.sharpe_net, "ic_mean": r.ic_mean, "turnover_annual": r.turnover_annual})
-        except Exception as e:
-            rows.append({"year": y, "error": str(e)})
-    results["by_year"] = pd.DataFrame(rows)
-
-    # -- holding period --
-    rows = []
-    for hp in (1, 3, 5, 10, 20):
-        try:
-            r = run_backtest(expression, universe, start, end, holding_period=hp, _skip_tracker=True, **base_kwargs)
-            rows.append({"holding_period": hp, "sharpe_net": r.sharpe_net, "ic_mean": r.ic_mean, "turnover_annual": r.turnover_annual})
-        except Exception as e:
-            rows.append({"holding_period": hp, "error": str(e)})
-    results["by_holding_period"] = pd.DataFrame(rows)
-
-    # -- costs --
-    rows = []
-    for bps in (0, 5, 10, 20):
-        try:
-            r = run_backtest(expression, universe, start, end, transaction_cost_bps=bps, slippage_bps=0,
-                              _skip_tracker=True, **base_kwargs)
-            rows.append({"cost_bps": bps, "sharpe_net": r.sharpe_net, "annual_return_net": r.annual_return_net})
-        except Exception as e:
-            rows.append({"cost_bps": bps, "error": str(e)})
-    results["by_cost"] = pd.DataFrame(rows)
-
-    # -- portfolio construction --
-    rows = []
-    for port, weight in [("LONG_SHORT", "EQUAL_WEIGHT"), ("LONG_SHORT", "SIGNAL_WEIGHTED"),
-                          ("LONG_ONLY", "EQUAL_WEIGHT"), ("LONG_ONLY", "SIGNAL_WEIGHTED")]:
-        try:
-            r = run_backtest(expression, universe, start, end, portfolio=port, weighting=weight,
-                              _skip_tracker=True, **base_kwargs)
-            rows.append({"portfolio": port, "weighting": weight, "sharpe_net": r.sharpe_net})
-        except Exception as e:
-            rows.append({"portfolio": port, "weighting": weight, "error": str(e)})
-    results["by_construction"] = pd.DataFrame(rows)
-
-    sharpe_values = []
-    for df in results.values():
-        if "sharpe_net" in df.columns:
-            sharpe_values.extend(df["sharpe_net"].dropna().tolist())
-    results["stability_note"] = (
-        f"Sharpe across all {len(sharpe_values)} sensitivity runs: "
-        f"mean={np.mean(sharpe_values):.2f}, std={np.std(sharpe_values):.2f}. "
-        f"High std relative to mean suggests the result is fragile to these choices."
-    ) if sharpe_values else "No successful runs to summarize."
-
-    return results
 
 
-def parameter_sensitivity(expression_template: str, param_grid: dict, universe: str, start: str, end: str,
-                           **base_kwargs) -> pd.DataFrame:
-    """expression_template e.g. 'rank(ts_zscore(momentum_{m}, {z}))' with
-    param_grid = {'m': [5, 20, 60], 'z': [10, 20, 30]}. Produces one row per
-    combination — look for stable *regions*, not an isolated peak (Section 29)."""
-    keys = list(param_grid.keys())
-    rows = []
-    for combo in itertools.product(*param_grid.values()):
-        params = dict(zip(keys, combo))
-        expr = expression_template.format(**params)
-        try:
-            r = run_backtest(expr, universe, start, end, _skip_tracker=True, **base_kwargs)
-            rows.append({**params, "expression": expr, "sharpe_net": r.sharpe_net, "ic_mean": r.ic_mean})
-        except Exception as e:
-            rows.append({**params, "expression": expr, "error": str(e)})
-    return pd.DataFrame(rows)
 
 
 # --- Exported from notebook cell 43 ---
 
 
-def compare_alphas(alpha_dict: dict, close: pd.DataFrame, universe_mask: pd.DataFrame,
-                    holding_period: int = 1) -> dict:
-    names = list(alpha_dict.keys())
-    signal_corr = pd.DataFrame(index=names, columns=names, dtype=float)
-    return_series = {}
-    for name, alpha in alpha_dict.items():
-        weights = alpha.apply(lambda row: construct_portfolio_row(row, "LONG_SHORT", "EQUAL_WEIGHT"), axis=1)
-        asset_returns = close.pct_change()
-        return_series[name] = (weights.shift(1).fillna(0.0) * asset_returns).sum(axis=1)
-
-    for a in names:
-        for b in names:
-            corrs = []
-            for d in alpha_dict[a].index:
-                if d not in alpha_dict[b].index:
-                    continue
-                both = pd.concat([alpha_dict[a].loc[d], alpha_dict[b].loc[d]], axis=1).dropna()
-                if len(both) >= 5:
-                    corrs.append(both.iloc[:, 0].corr(both.iloc[:, 1]))
-            signal_corr.loc[a, b] = np.nanmean(corrs) if corrs else np.nan
-
-    return_corr = pd.DataFrame(return_series).corr()
-    return {"signal_correlation": signal_corr, "return_correlation": return_corr}
 
 
 # --- Exported interface contract ---
@@ -2135,8 +1891,6 @@ def describe_interface() -> dict:
 # --- Exported request/result API contract ---
 
 import uuid
-import math
-import inspect
 
 _API_ALLOWED_FIELDS = {
     "expression", "universe", "start", "end", "holding_period", "portfolio",

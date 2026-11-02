@@ -124,11 +124,9 @@ def retrieve_similar_vectors(
     catalog_fingerprint: str,
     limit: int = 3,
     min_similarity: float = 0.25,
-    safety_text: str | None = None,
 ) -> list[dict[str, Any]]:
     """Search stored vectors within the exact model/catalog/backend scope."""
     query_vector, backend_id = embed_text(idea)
-    query_safety_tokens = idea_tokens(safety_text if safety_text is not None else idea)
     if not any(query_vector):
         return []
     try:

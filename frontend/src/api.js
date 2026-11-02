@@ -29,11 +29,6 @@ export const submitExecutionJobFromHandoff = (payload) => apiRequest("/execution
 });
 
 // Keep the legacy endpoint available for compatibility and direct API comparisons.
-export const runLegacyBacktest = (payload) => apiRequest("/backtest", {
-  method: "POST",
-  body: JSON.stringify(payload)
-});
-
 // Submit a durable background job, then poll its persisted lifecycle.
 async function waitForExecutionJob(job) {
   const deadline = Date.now() + 30 * 60 * 1000;
