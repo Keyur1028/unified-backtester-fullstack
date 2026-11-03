@@ -76,6 +76,39 @@ def build_generation_prompt(
     return prompt
 
 
+_STR = {"type": "string"}
+_STR_LIST = {"type": "array", "items": _STR}
+
+# Enforced by Gemini on the reply, so the candidate shape no longer depends on the prompt alone.
+CANDIDATE_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "ideas": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": _STR,
+                    "hypothesis": _STR,
+                    "expression": _STR,
+                    "rationale": _STR,
+                    "expected_behavior": _STR,
+                    "risks": _STR_LIST,
+                    "required_fields": _STR_LIST,
+                    "entry_rules": _STR_LIST,
+                    "exit_rules": _STR_LIST,
+                    "execution_rules": _STR_LIST,
+                    "clarifying_questions": _STR_LIST,
+                    "assumptions": _STR_LIST,
+                },
+                "required": ["name", "hypothesis", "expression"],
+            },
+        }
+    },
+    "required": ["ideas"],
+}
+
+
 def generate_candidates(api_key: str, model: str, prompt: str) -> str:
     """Generate bounded JSON through the timeout/retry-aware provider gateway."""
-    return invoke_json_generation(api_key, model, prompt)
+    return invoke_json_generation(api_key, model, prompt, response_schema=CANDIDATE_JSON_SCHEMA)

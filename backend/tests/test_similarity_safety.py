@@ -11,7 +11,7 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 import app as api_app  # noqa: E402
-from idea_similarity_safety import has_directional_conflict  # noqa: E402
+from idea_similarity_safety import has_directional_conflict, has_number_mismatch  # noqa: E402
 from similarity_retrieval import idea_tokens  # noqa: E402
 
 
@@ -75,9 +75,10 @@ class SimilaritySafetyTests(unittest.TestCase):
             "expression": "rank(ts_mean(close, 20))",
             "validation": "syntax-and-registry-pass",
         }]
+        # Stored tokens come from the full brief, which also carries its scope (delay, universe).
         matching_tokens = idea_tokens(
             "Find bullish momentum using price trend and recent trading volume"
-        )
+        ) + ["d1", "nifty50"]
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(api_app, "STORE", Path(directory)):
                 with patch.object(api_app.engine, "describe_interface", return_value=interface):
@@ -98,6 +99,19 @@ class SimilaritySafetyTests(unittest.TestCase):
         self.assertEqual(response.get_json()["cache"], {
             "hit": True, "strategy": "similarity"
         })
+
+
+    def test_changed_lookback_number_is_a_mismatch(self):
+        self.assertTrue(has_number_mismatch(
+            idea_tokens("Rank stocks by 20 day momentum of close"),
+            idea_tokens("Rank stocks by 60 day momentum of close"),
+        ))
+
+    def test_same_numbers_are_not_a_mismatch(self):
+        self.assertFalse(has_number_mismatch(
+            idea_tokens("Rank stocks by 20 day momentum"),
+            idea_tokens("Rank stocks by 20 day momentum with volume"),
+        ))
 
 
 if __name__ == "__main__":

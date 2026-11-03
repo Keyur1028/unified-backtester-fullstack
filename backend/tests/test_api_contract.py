@@ -18,6 +18,7 @@ if BACKEND_DIR not in sys.path:
 
 import app as api_app  # noqa: E402
 from idea_cache import make_cache_key, write_cached_response  # noqa: E402
+from similarity_retrieval import idea_tokens  # noqa: E402
 
 
 class ApiContractTests(unittest.TestCase):
@@ -134,7 +135,8 @@ class ApiContractTests(unittest.TestCase):
                     with patch.object(api_app.engine, "OPERATORS", {"rank": object(), "ts_mean": object()}):
                         with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
                             with patch.object(api_app, "retrieve_similar", return_value=[
-                                {"similarity": 0.96, "ideas": prior_ideas}
+                                {"similarity": 0.96, "ideas": prior_ideas,
+                                 "matched_tokens": idea_tokens(idea) + ["d1", "nifty50"]}
                             ]):
                                 with patch.object(api_app, "validate_candidate_runtime", return_value=(True, None)):
                                     with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": "test-model"}):
@@ -181,7 +183,8 @@ class ApiContractTests(unittest.TestCase):
                     with patch.object(api_app.engine, "OPERATORS", {"rank": object(), "ts_mean": object()}):
                         with patch.object(api_app.engine, "GROUP_OPERATORS", {}):
                             with patch.object(api_app, "retrieve_similar", return_value=[
-                                {"similarity": similarity, "ideas": prior_ideas}
+                                {"similarity": similarity, "ideas": prior_ideas,
+                                 "matched_tokens": idea_tokens(idea) + ["d1", "nifty50"]}
                             ]):
                                 with patch.object(api_app, "validate_candidate_runtime", return_value=(True, None)):
                                     with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_MODEL": "test-model"}):

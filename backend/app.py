@@ -16,7 +16,7 @@ from idea_cache import PROMPT_VERSION, make_cache_key, read_cached_response, wri
 from candidate_validation import VALIDATOR_VERSION, catalog_fingerprint, validate_expression
 from similarity_retrieval import idea_tokens, retrieve_similar, store_idea_response
 from vector_retrieval import retrieve_similar_vectors, store_idea_vector_response
-from idea_similarity_safety import has_directional_conflict
+from idea_similarity_safety import has_directional_conflict, has_number_mismatch
 from candidate_payload import compact_generated_candidate
 from strategy_handoff import build_strategy_handoff
 from local_summarizer import summarize_for_retrieval
@@ -24,7 +24,7 @@ from catalog_retrieval import retrieve_catalog_context
 from candidate_runtime_validation import validate_candidate_runtime
 from research_context import validate_research_context
 from alpha_generation_service import build_generation_prompt, generate_candidates
-from generation_gateway import MAX_PROMPT_CHARS
+from generation_gateway import MAX_PROMPT_CHARS, plain_reason
 from model_response_contract import ModelResponseContractError, parse_idea_candidates
 from rate_limit import check_rate_limit
 from backtest_service import run_backtest
@@ -347,6 +347,7 @@ def generate_alpha_ideas():
             row for row in similar_ideas
             if len(query_tokens) >= 5 and row.get("similarity", 0) >= 0.92
             and not has_directional_conflict(safety_query_tokens, row.get("matched_tokens", []))
+            and not has_number_mismatch(safety_query_tokens, row.get("matched_tokens", []))
             and isinstance(row.get("ideas"), list) and row["ideas"]
         ),
         None,
@@ -514,9 +515,10 @@ def generate_alpha_ideas():
     except ModelResponseContractError as exc:
         app.logger.warning("Gemini response violated the candidate JSON contract: %s", exc)
         return jsonify({"error": {"type": "ModelResponseContractError", "message": "The model returned an invalid candidate response. Retry with a clearer research idea.", "details": str(exc)[:200]}}), 502
-    except Exception:
+    except Exception as exc:
         app.logger.exception("Gemini alpha generation failed")
-        return jsonify({"error": {"type": "GeminiError", "message": "Gemini generation failed. Check the API key, model availability, quota, and backend logs."}}), 502
+        message = plain_reason(exc) or "Gemini generation failed. Check the API key, model availability, quota, and backend logs."
+        return jsonify({"error": {"type": "GeminiError", "message": message}}), 502
 
 @app.get("/api/health")
 def health():

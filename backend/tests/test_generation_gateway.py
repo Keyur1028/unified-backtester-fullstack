@@ -8,7 +8,7 @@ BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
-from generation_gateway import invoke_json_generation
+from generation_gateway import invoke_json_generation, plain_reason
 
 
 class ProviderError(Exception):
@@ -94,6 +94,49 @@ class GenerationGatewayTests(unittest.TestCase):
             invoke_json_generation("", "test-model", "prompt", client_factory=lambda **_: self.fail("called"))
         with self.assertRaisesRegex(ValueError, "prompt"):
             invoke_json_generation("secret", "test-model", " ", client_factory=lambda **_: self.fail("called"))
+
+    def test_response_schema_is_sent_as_json_schema(self):
+        client = FakeClient(['{"ideas": []}'])
+        schema = {"type": "object"}
+        invoke_json_generation("secret", "test-model", "prompt", client_factory=lambda **_: client, response_schema=schema)
+        self.assertEqual(client.models.last_kwargs["config"]["response_json_schema"], schema)
+
+    def test_timeout_is_never_retried_because_it_may_be_billed(self):
+        class ReadTimeout(Exception):
+            pass
+
+        client = FakeClient([ReadTimeout("slow"), '{"ideas": []}'])
+        with patch.dict(os.environ, {"ALPHA_MODEL_RETRIES": "1"}), patch("generation_gateway.time.sleep"):
+            with self.assertRaises(ReadTimeout):
+                invoke_json_generation("secret", "test-model", "prompt", client_factory=lambda **_: client)
+        self.assertEqual(client.models.calls, 1)
+
+    def test_daily_quota_is_not_retried(self):
+        # The daily quota names its own window in the provider's words.
+        client = FakeClient([Exception("429 RESOURCE_EXHAUSTED: quota exceeded, PerDay limit"), '{"ideas": []}'])
+        with patch.dict(os.environ, {"ALPHA_MODEL_RETRIES": "1"}), patch("generation_gateway.time.sleep"):
+            with self.assertRaises(Exception):
+                invoke_json_generation("secret", "test-model", "prompt", client_factory=lambda **_: client)
+        self.assertEqual(client.models.calls, 1)
+
+    def test_google_sdk_error_codes_are_classified(self):
+        # google-genai exposes the HTTP status as ``code``, not ``status_code``.
+        class SdkError(Exception):
+            def __init__(self, code):
+                super().__init__(f"{code} UNAVAILABLE")
+                self.code = code
+
+        client = FakeClient([SdkError(503), '{"ideas": []}'])
+        with patch.dict(os.environ, {"ALPHA_MODEL_RETRIES": "1"}), patch("generation_gateway.time.sleep") as sleep:
+            result = invoke_json_generation("secret", "test-model", "prompt", client_factory=lambda **_: client)
+        self.assertEqual(result, '{"ideas": []}')
+        sleep.assert_called_once()
+
+    def test_plain_reason_names_the_fix_for_common_failures(self):
+        self.assertIn("API key", plain_reason(ProviderError(403)))
+        self.assertIn("overloaded", plain_reason(ProviderError(503)))
+        self.assertIn("quota", plain_reason(ProviderError(429)))
+        self.assertIsNone(plain_reason(ProviderError(418)))
 
 
 if __name__ == "__main__":

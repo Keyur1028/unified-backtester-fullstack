@@ -63,3 +63,14 @@ def has_directional_conflict(left_tokens: list[str], right_tokens: list[str]) ->
         elif left_present != right_present:
             return True
     return False
+
+
+def has_number_mismatch(left_tokens: list[str], right_tokens: list[str]) -> bool:
+    """True when two briefs carry different numbers, e.g. a 20-day vs 60-day lookback.
+
+    Lexical similarity barely moves for one changed number, so it must be checked directly.
+    """
+    def numbers(tokens: list[str]) -> set[str]:
+        return {str(token) for token in tokens if any(ch.isdigit() for ch in str(token))}
+
+    return numbers(left_tokens) != numbers(right_tokens)
