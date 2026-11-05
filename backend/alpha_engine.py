@@ -170,6 +170,34 @@ _FALLBACK_NIFTY50 = [
 ]
 
 
+
+# Current NIFTY 100 constituent snapshot (NSE symbols; update at index rebalances).
+# This is deliberately an in-code vector like _FALLBACK_NIFTY50 so selecting
+# NIFTY100 does not depend on a local CSV being present.
+_FALLBACK_NIFTY100 = [
+    "RELIANCE", "BHARTIARTL", "HDFCBANK", "ICICIBANK", "SBIN", "TCS",
+    "BAJFINANCE", "LT", "HINDUNILVR", "KOTAKBANK", "INFY", "ADANIPORTS",
+    "SUNPHARMA", "TITAN", "ADANIPOWER", "AXISBANK", "HCLTECH", "MARUTI",
+    "ADANIENT", "M&M", "ITC", "ULTRACEMCO", "HAL", "JSWSTEEL", "ETERNAL",
+    "NTPC", "ONGC", "BAJAJ-AUTO", "BEL", "BAJAJFINSV", "DIVISLAB",
+    "COALINDIA", "POWERGRID", "NESTLEIND", "HINDZINC", "ASIANPAINT",
+    "ADANIGREEN", "TATASTEEL", "DMART", "SHRIRAMFIN", "GRASIM", "HINDALCO",
+    "TVSMOTOR", "EICHERMOT", "IOC", "INDIGO", "WIPRO", "TORNTPHARM", "DLF",
+    "SOLARINDS", "TECHM", "ADANIENSOL", "SBILIFE", "MOTHERSON", "HYUNDAI",
+    "TRENT", "PIDILITIND", "BOSCHLTD", "TMCV", "JIOFIN", "ABB", "TATACAP",
+    "VBL", "CHOLAFIN", "PNB", "UNIONBANK", "CGPOWER", "BPCL", "CUMMINSIND",
+    "BANKBARODA", "SIEMENS", "LTM", "APOLLOHOSP", "GAIL", "INDHOTEL",
+    "BRITANNIA", "ZYDUSLIFE", "JINDALSTEL", "BAJAJHLDNG", "HDFCLIFE",
+    "TATAPOWER", "DRREDDY", "CIPLA", "LODHA", "MUTHOOTFIN", "HDFCAMC",
+    "CANBK", "PFC", "TATACONSUM", "ENRIN", "UNITDSPR", "TMPV", "IRFC",
+    "VEDL", "AMBUJACEM", "MAXHEALTH", "SHREECEM", "GODREJCP", "RECLTD",
+    "MAZDOCK",
+]
+
+if len(_FALLBACK_NIFTY100) != 100 or len(set(_FALLBACK_NIFTY100)) != 100:
+    raise RuntimeError("The bundled NIFTY100 ticker vector must contain 100 unique symbols.")
+
+
 def _load_universe_csv(name: str, required: bool = False, fallback=None) -> list:
     """Loads a universe constituents CSV. If `required` is True, a missing
     file raises FileNotFoundError with an explicit message rather than
@@ -202,9 +230,8 @@ def load_static_universe(name: str) -> list:
     if name == "NIFTY50":
         return _load_universe_csv("nifty50", fallback=_FALLBACK_NIFTY50)
     if name == "NIFTY100":
-        # No fallback: NIFTY100 must never silently become NIFTY50 or any
-        # other list. A missing nifty100.csv is a hard error (Section 6.1).
-        return _load_universe_csv("nifty100", required=True)
+        # Use the dedicated 100-symbol vector; never substitute NIFTY50.
+        return list(_FALLBACK_NIFTY100)
     raise ValueError(f"Unknown static universe: {name}")
 
 
@@ -283,12 +310,10 @@ def get_universe(name: str, close: pd.DataFrame, market_cap: pd.DataFrame = None
             "rebalance_frequency": "N/A (static list)",
             "point_in_time": False,
             "survivorship_bias_risk": True,
-            "notes": "Static list applies uniformly across the whole date range. Whether loaded from "
-                     "a provided CSV or the bundled fallback, it reflects a SINGLE snapshot of "
-                     "membership (typically 'current'), not genuine historical point-in-time "
-                     "membership -- historical index changes before/after that snapshot are not "
-                     "represented. Supply a truly historical constituents-over-time file to fix this "
-                     "(this notebook's simple one-CSV-per-universe format doesn't support that).",
+            "notes": "Static list applies uniformly across the whole date range. NIFTY100 uses the "
+                     "bundled 100-symbol ticker vector, which is a current-membership snapshot, "
+                     "not genuine historical point-in-time membership. Historical index changes "
+                     "before/after that snapshot are not represented.",
         }
         return mask, meta
     if name in ("TOP250", "TOP500"):
@@ -1868,8 +1893,8 @@ def describe_interface() -> dict:
         "universes": {
             "NIFTY50": "Static list. Bundled fallback if no CSV supplied -- survivorship_bias_risk=True, "
                        "point_in_time=False.",
-            "NIFTY100": "Static list. REQUIRES a real nifty100.csv in CONFIG[\'universe_dir\'] -- "
-                        "raises FileNotFoundError if missing, never silently falls back to NIFTY50.",
+            "NIFTY100": "Static list from the bundled 100-symbol ticker vector; uses the same "
+                        "OHLCV fetch, feature, expression, and backtest pipeline as NIFTY50.",
             "TOP250": "Ranked by market cap, re-ranked periodically. REQUIRES a candidate-pool CSV -- "
                       "raises FileNotFoundError if missing, never silently falls back to NIFTY100.",
             "TOP500": "Same as TOP250 with top_n=500.",
