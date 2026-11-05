@@ -133,7 +133,18 @@ class IdeaExpressionPipelineIntegrationTests(unittest.TestCase):
                 "assumptions": ["Daily OHLCV data is available."],
             }]
         })
-        with patch.object(api_app, "generate_candidates", return_value=model_response) as generate:
+        catalog_context = {
+            "fields": [{"name": "close", "kind": "native_ohlcv", "score": "0.9"}],
+            "operators": [{"name": "ts_mean", "semantics": "Rolling time-series mean", "score": "0.9"}],
+        }
+        with patch.object(
+            api_app, "summarize_for_retrieval",
+            return_value={"summary": "compact momentum thesis preserving close and rolling mean", "mode": "local-pretrained"},
+        ) as summarize, patch.object(
+            api_app, "retrieve_catalog_context", return_value=catalog_context
+        ) as rag, patch.object(
+            api_app, "generate_candidates", return_value=model_response
+        ) as generate:
             first = self.client.post(
                 "/api/generate-alpha",
                 json={"idea": "Find stocks with persistent price momentum over one month."},
@@ -148,6 +159,18 @@ class IdeaExpressionPipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(second.status_code, 200, second.get_json())
         self.assertEqual(second.get_json()["cache"], {"hit": True, "strategy": "similarity"})
         self.assertEqual(second.get_json()["ideas"][0]["expression"], "rank(ts_mean(close, 20))")
+        self.assertEqual(second.get_json()["ideas"][0]["handoff"]["required_fields"], ["close"])
+        self.assertEqual(second.get_json()["ideas"][0]["handoff"]["required_operators"], ["rank", "ts_mean"])
+        self.assertEqual(second.get_json()["ideas"][0]["handoff"]["retrieved_capabilities"], {
+            "source": "active-engine-catalog-rag",
+            "fields": ["close"],
+            "operators": ["ts_mean"],
+        })
+        summarize.assert_called()
+        self.assertEqual(rag.call_args.args[0], "compact momentum thesis preserving close and rolling mean")
+        self.assertIn("Relevant catalog entries", generate.call_args.args[2])
+        self.assertIn('"name": "close"', generate.call_args.args[2])
+        self.assertIn('"name": "ts_mean"', generate.call_args.args[2])
         generate.assert_called_once()
 
     def test_intraday_context_is_rejected_before_model_call(self):
