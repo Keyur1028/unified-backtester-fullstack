@@ -274,9 +274,12 @@ def get_universe(name: str, close: pd.DataFrame, market_cap: pd.DataFrame = None
     """
     name = name.upper()
     if name in ("NIFTY50", "NIFTY100"):
-        mask = build_static_universe_mask(close, load_static_universe(name))
+        constituents = load_static_universe(name)
+        mask = build_static_universe_mask(close, constituents)
         meta = {
-            "name": name, "construction_method": "fallback/static/current-list membership (not re-ranked)",
+            "name": name,
+            "asset_count": len(constituents),
+            "construction_method": "static/current-list membership (not re-ranked)",
             "rebalance_frequency": "N/A (static list)",
             "point_in_time": False,
             "survivorship_bias_risk": True,
