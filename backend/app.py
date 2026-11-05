@@ -80,11 +80,11 @@ def valid_cached_ideas(ideas, fields, operators):
     return accepted
 
 
-def attach_strategy_handoffs(candidates, research_context, fields, operators):
-    """Attach a fresh, context-specific handoff to candidates from any cache path."""
+def attach_strategy_handoffs(candidates, research_context, fields, operators, catalog_context=None):
+    """Attach a fresh handoff with expression-derived requirements and RAG hints."""
     for candidate in candidates:
         candidate["handoff"] = build_strategy_handoff(
-            candidate, research_context, set(fields), set(operators)
+            candidate, research_context, set(fields), set(operators), catalog_context
         )
     return candidates
 
@@ -365,7 +365,7 @@ def generate_alpha_ideas():
                 runtime_checked.append(candidate)
             reusable_ideas = runtime_checked
         if reusable_ideas:
-            attach_strategy_handoffs(reusable_ideas, research_context, fields, operators)
+            attach_strategy_handoffs(reusable_ideas, research_context, fields, operators, catalog_context)
             result = {
                 "ideas": reusable_ideas,
                 "rejected": [],
@@ -472,7 +472,7 @@ def generate_alpha_ideas():
                     "scope": "static-syntax-registry-and-synthetic-runtime-probe",
                 }
                 candidate["handoff"] = build_strategy_handoff(
-                    candidate, research_context, set(fields), set(operators)
+                    candidate, research_context, set(fields), set(operators), catalog_context
                 )
                 accepted.append(candidate)
                 seen_expressions.add(expression_key)
