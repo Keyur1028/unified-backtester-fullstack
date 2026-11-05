@@ -26,7 +26,7 @@ python app.py
 
 The API listens at `http://127.0.0.1:3000`.
 
-The engine resolves its default `data_cache/`, `universes/`, and `external_scores/` directories relative to `backend/alpha_engine.py`, so API and worker processes use the same locations even when launched from different working directories. The engine uses live Yahoo Finance data through `yfinance` by default. Install `pyarrow` (included in requirements) for the parquet cache. Required universe files must exist where the engine contract expects them; for example, `NIFTY100` requires `backend/universes/nifty100.csv`, and `TOP250`/`TOP500` require their candidate-pool CSVs. The engine does not silently substitute a different universe.
+The engine resolves its default `data_cache/`, `universes/`, and `external_scores/` directories relative to `backend/alpha_engine.py`, so API and worker processes use the same locations even when launched from different working directories. The engine uses live Yahoo Finance data through `yfinance` by default. Install `pyarrow` (included in requirements) for the parquet cache. NIFTY100 uses its bundled 100-symbol ticker vector; TOP250/TOP500 still require their candidate-pool CSVs. The engine does not silently substitute a different universe.
 
 ## Start the frontend
 
@@ -131,13 +131,9 @@ This writes `backend/universes/nifty50.csv` and `nifty50.metadata.json`. The ref
 
 ## NIFTY 100 universe setup
 
-The engine requires an explicit constituents file for NIFTY 100 and deliberately does not silently substitute NIFTY 50. Bootstrap or refresh the current constituent snapshot from the official NSE Indices CSV before running NIFTY 100 backtests:
+The NIFTY 100 constituents are held in the in-code `_FALLBACK_NIFTY100` ticker vector in `backend/alpha_engine.py`, alongside the NIFTY 50 vector. Selecting `NIFTY100` loads these 100 symbols directly and sends them through the same OHLCV fetching, feature generation, expression evaluation, universe masking, and backtest pipeline used by `NIFTY50`. No `nifty100.csv` file or refresh step is required.
 
-```bash
-python backend/refresh_nifty100.py
-```
-
-This writes `backend/universes/nifty100.csv` and a source/checksum record in `nifty100.metadata.json`. The file is a **current-membership snapshot**, not a point-in-time historical universe; historical backtests using it carry survivorship/reconstitution bias unless you provide historical constituents separately. The script validates exactly 100 unique symbols and fails without replacing the existing file if the source response is invalid.
+The vector is a static current-membership snapshot and is applied across the full requested date range. It is not point-in-time historical membership, so historical runs can contain survivorship and index-reconstitution bias. Update the vector when NSE Indices changes the NIFTY 100 constituents.
 
 ## Optional local retrieval models
 
@@ -202,6 +198,17 @@ Exact-match idea-cache keys include a prompt-contract version. When the model in
 
 In addition to the per-client request limit, the backend reserves one shared daily budget slot only after exact-match and similarity-cache misses, so cache hits do not consume the paid-model budget. The default is 100 provider-bound generation requests per 24-hour fixed window; configure `ALPHA_MODEL_DAILY_CALL_LIMIT` (accepted range 1–100,000) to change it. Exhaustion returns HTTP 429 with `Retry-After`; storage failures fail closed with HTTP 503. This counts generation requests, not tokens or billing units, and one request may make a bounded retry, so provider billing can differ from the counter.
 
+
+## Live NIFTY 100 smoke test
+
+Run this opt-in end-to-end check against a running API and worker. The backtest uses the bundled NIFTY100 ticker vector. It queues a real NIFTY 100 backtest and verifies that the result reports NIFTY100 with 100 constituents, live-provider data, a usable time series, and core metrics. It is excluded from offline CI because it requires Yahoo Finance access and a configured authenticated API.
+
+```bash
+export SUPABASE_ACCESS_TOKEN="..."
+python backend/scripts/smoke_live_nifty100.py --start 2023-01-01 --end 2025-12-31
+```
+
+The test does not call Gemini. It uses `rank(ts_mean(close, 20))` to isolate the live market-data and backtest path. A passing run verifies execution/data plumbing, not alpha profitability. NIFTY100 membership is a current snapshot rather than point-in-time history; survivorship and reconstitution bias remain.
 
 ## Live NIFTY 50 smoke test
 
