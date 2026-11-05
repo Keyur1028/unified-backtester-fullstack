@@ -203,6 +203,18 @@ Exact-match idea-cache keys include a prompt-contract version. When the model in
 In addition to the per-client request limit, the backend reserves one shared daily budget slot only after exact-match and similarity-cache misses, so cache hits do not consume the paid-model budget. The default is 100 provider-bound generation requests per 24-hour fixed window; configure `ALPHA_MODEL_DAILY_CALL_LIMIT` (accepted range 1–100,000) to change it. Exhaustion returns HTTP 429 with `Retry-After`; storage failures fail closed with HTTP 503. This counts generation requests, not tokens or billing units, and one request may make a bounded retry, so provider billing can differ from the counter.
 
 
+## Live NIFTY 100 smoke test
+
+After refreshing the NIFTY 100 constituent snapshot, run this opt-in end-to-end check against a running API and worker. It queues a real NIFTY 100 backtest and verifies that the result reports NIFTY100 with 100 constituents, live-provider data, a usable time series, and core metrics. It is excluded from offline CI because it requires Yahoo Finance access and a configured authenticated API.
+
+```bash
+python backend/refresh_nifty100.py
+export SUPABASE_ACCESS_TOKEN="..."
+python backend/scripts/smoke_live_nifty100.py --start 2023-01-01 --end 2025-12-31
+```
+
+The test does not call Gemini. It uses `rank(ts_mean(close, 20))` to isolate the live market-data and backtest path. A passing run verifies execution/data plumbing, not alpha profitability. NIFTY100 membership is a current snapshot rather than point-in-time history; survivorship and reconstitution bias remain.
+
 ## Live NIFTY 50 smoke test
 
 Run this opt-in smoke test only after starting the Flask API and at least one execution worker. It queues a real NIFTY 50 daily-bar backtest through the authenticated API and checks that the persisted result contains live-provider data, a usable time series, and core metrics. The worker must have working Yahoo Finance access; the test can take several minutes and may fail if the provider is unavailable.
