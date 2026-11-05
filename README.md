@@ -117,6 +117,17 @@ The key is read only by the Python backend. Do not put it in a `VITE_*` variable
 
 The response includes `ideas[]` and validation/provenance metadata. Missing Gemini configuration returns a `503` response.
 
+### Idea → RAG → expression flow
+
+1. The backend checks the persistent exact-match response cache first. A valid hit is revalidated against the current field/operator registry and synthetic runtime probe, then returned without a provider generation call.
+2. On an exact miss, the brief is passed through `summarize_for_retrieval`. If `LOCAL_SUMMARIZER_MODEL` points to a locally cached model, that low-cost local model produces the retrieval query; otherwise deterministic normalization is used.
+3. The retrieval query searches the local RAG stores for similar prior ideas/candidates and for relevant entries in the active engine catalog. The catalog contains registered **data fields** and **operators** with their descriptions/semantics. The local vector store uses a cached embedding model when configured, otherwise hashed-token vectors.
+4. The retrieved prior examples and the relevant field/operator entries are included in the expression-generation prompt alongside the original idea and the complete authoritative engine registry. Retrieved entries are guidance, not permission to use unsupported fields or operators.
+5. The generated expression is parsed and validated against the active registry and a synthetic runtime probe. The handoff records the expression-derived `required_fields` and `required_operators`, plus the RAG-retrieved `retrieved_capabilities`, so the next API stage can inspect both what was suggested and what the expression actually uses.
+6. A successful result is written to the exact cache and both prior-idea retrieval stores. A sufficiently close similar idea (similarity threshold `0.92`, with direction/number mismatch safeguards) can reuse validated prior candidates without another provider generation call.
+
+Exact-cache hits are based on the normalized full research brief, active fields/operators, model, and prompt version. Similarity reuse is heuristic; it must not be treated as semantic proof or as a substitute for expression revalidation and backtesting.
+
 The notebook-derived backtesting engine is exported into `backend/alpha_engine.py`. The original production notebooks are not currently committed in this repository; end-to-end parity with the production Idea→Expression notebook cannot be independently verified from this checkout.
 
 ## NIFTY 50 universe setup
