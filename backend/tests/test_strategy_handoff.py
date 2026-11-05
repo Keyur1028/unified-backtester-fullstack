@@ -35,10 +35,18 @@ class StrategyHandoffTests(unittest.TestCase):
             candidate,
             {"cluster": "D1", "universe": "NIFTY100", "strategy_context": {"holding_period_bars": 5}},
             {"close"}, {"rank", "ts_mean"},
+            {"fields": [{"name": "close"}, {"name": "volume"}],
+             "operators": [{"name": "rank"}, {"name": "ts_mean"}]},
         )
         self.assertEqual(handoff["assistant_status"], "ready_for_notebook2")
         self.assertEqual(handoff["required_fields"], ["close"])
         self.assertEqual(handoff["expression_validation"]["operators_used"], ["rank", "ts_mean"])
+        self.assertEqual(handoff["required_operators"], ["rank", "ts_mean"])
+        self.assertEqual(handoff["retrieved_capabilities"], {
+            "source": "active-engine-catalog-rag",
+            "fields": ["close"],
+            "operators": ["rank", "ts_mean"],
+        })
         self.assertEqual(handoff["universe"], "NIFTY100")
         self.assertTrue(handoff["notebook2_must_revalidate"])
 
