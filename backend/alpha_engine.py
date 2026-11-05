@@ -310,10 +310,11 @@ def get_universe(name: str, close: pd.DataFrame, market_cap: pd.DataFrame = None
             "rebalance_frequency": "N/A (static list)",
             "point_in_time": False,
             "survivorship_bias_risk": True,
-            "notes": "Static list applies uniformly across the whole date range. NIFTY100 uses the "
-                     "bundled 100-symbol ticker vector, which is a current-membership snapshot, "
-                     "not genuine historical point-in-time membership. Historical index changes "
-                     "before/after that snapshot are not represented.",
+            "notes": "Static list applies uniformly across the whole date range. NIFTY50 uses its "
+                     "CSV or bundled fallback list; NIFTY100 uses its bundled 100-symbol vector. "
+                     "Both are current-membership snapshots, not genuine historical point-in-time "
+                     "membership, so historical index changes before/after the snapshot are not "
+                     "represented.",
         }
         return mask, meta
     if name in ("TOP250", "TOP500"):
